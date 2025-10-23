@@ -557,17 +557,33 @@ class LeafletBomRadarCard extends HTMLElement {
 
   async testIngressUrl(url) {
     try {
-      const response = await fetch(`${url}/health`, {
+      const testUrl = `${url}/health`;
+      console.log('BoM Radar Card: Testing URL:', testUrl);
+      
+      const response = await fetch(testUrl, {
         method: 'GET',
-        headers: { 'Accept': 'application/json' }
+        headers: { 
+          'Accept': 'application/json'
+        },
+        // Add credentials for ingress
+        credentials: 'same-origin'
       });
       
-      return response.ok;
+      console.log('BoM Radar Card: Response status:', response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('BoM Radar Card: Health check response:', data);
+        return true;
+      }
+      
+      return false;
     } catch (error) {
+      console.warn('BoM Radar Card: URL test failed:', url, error.message);
       return false;
     }
   }
-
+  
   async apiRequest(endpoint) {
     if (!this.ingressUrl) {
       throw new Error('Ingress URL not initialized');
