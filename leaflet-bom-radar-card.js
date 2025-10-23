@@ -1,5 +1,6 @@
 // leaflet-bom-radar-card.js
-// Version 2.0.0 - Dynamic Multi-Radar Support with Resolution
+// Version 2.0.1 - WITH FIXES: Editor auto-loading + Sections support
+// Dynamic Multi-Radar Support with Resolution
 
 class LeafletBomRadarCard extends HTMLElement {
   constructor() {
@@ -19,23 +20,40 @@ class LeafletBomRadarCard extends HTMLElement {
     this.ingressUrl = null;
     this.updateViewportDebounce = null;
     this.currentResolution = null;
-    this.isInSectionsDashboard = this._detectSectionsDashboard();
+    
+    // ADDED: Detect if we're in a sections dashboard
+    this.isInSectionsDashboard = false;
   }
 
+  // ADDED: Lifecycle callback to detect sections
+  connectedCallback() {
+    super.connectedCallback?.();
+    this.isInSectionsDashboard = this._detectSectionsDashboard();
+    
+    if (this.isInSectionsDashboard) {
+      console.log('BoM Radar Card: Detected Sections dashboard layout');
+    }
+  }
+
+  // ADDED: Helper to detect sections dashboard
   _detectSectionsDashboard() {
-    // Check if parent has section-related classes
     let parent = this.parentElement;
-    while (parent) {
+    let depth = 0;
+    const maxDepth = 10;
+    
+    while (parent && depth < maxDepth) {
       if (parent.tagName === 'HUI-SECTION' || 
           parent.classList?.contains('section') ||
+          parent.classList?.contains('sections') ||
           parent.getAttribute('type') === 'sections') {
         return true;
       }
       parent = parent.parentElement;
+      depth++;
     }
     return false;
   }
-  
+
   setConfig(config) {
     this.config = {
       cache_hours: config.cache_hours || 2,
@@ -169,7 +187,7 @@ class LeafletBomRadarCard extends HTMLElement {
 
   render() {
     if (!this.content) {
-      // Calculate appropriate height
+      // UPDATED: Calculate height based on dashboard type
       const mapHeight = this.isInSectionsDashboard ? '400px' : '500px';
       
       this.innerHTML = `
@@ -179,21 +197,32 @@ class LeafletBomRadarCard extends HTMLElement {
             <div class="radar-info" id="radar-info">Loading...</div>
           </div>
           <div class="card-content">
-            <div id="map-container" style="height: ${mapHeight}">
-              <div id="radar-map"></div>
+            <div id="map-container">
+              <div id="radar-map" style="height: ${mapHeight}"></div>
               ${this.config.show_legend ? this.renderLegend() : ''}
               <div id="loading-overlay" class="loading-overlay" style="display: none;">
                 <div class="loading-spinner"></div>
                 <div class="loading-text">Loading radar data...</div>
               </div>
             </div>
-            <!-- rest of content -->
+            <div class="controls-container">
+              ${this.renderControls()}
+            </div>
+            <div class="status-bar">
+              <span id="timestamp-display">Initializing...</span>
+              <span id="status-info"></span>
+            </div>
           </div>
+          <div id="error-message" class="error-message" style="display: none;"></div>
         </ha-card>
+        <style>
+          ${this.getStyles()}
+        </style>
       `;
+      this.content = this.querySelector('.card-content');
     }
   }
-  
+
   renderLegend() {
     return `
       <div class="radar-legend">
@@ -266,7 +295,6 @@ class LeafletBomRadarCard extends HTMLElement {
       }
       #map-container {
         position: relative;
-        height: 500px;
         width: 100%;
       }
       #radar-map {
@@ -458,7 +486,6 @@ class LeafletBomRadarCard extends HTMLElement {
         transition: transform 0.25s cubic-bezier(0,0,0.25,1);
       }
       
-      /* Responsive design */
       @media (max-width: 600px) {
         .card-header {
           flex-direction: column;
@@ -494,8 +521,7 @@ class LeafletBomRadarCard extends HTMLElement {
   async setupMap() {
     await this.loadLeaflet();
     
-    // Get home location from Home Assistant
-    const latitude = this._hass.config.latitude || -37.8136; // Default Melbourne
+    const latitude = this._hass.config.latitude || -37.8136;
     const longitude = this._hass.config.longitude || 144.9631;
     
     this.map = L.map(this.querySelector('#radar-map'), {
@@ -506,24 +532,16 @@ class LeafletBomRadarCard extends HTMLElement {
       markerZoomAnimation: true
     }).setView([latitude, longitude], this.config.default_zoom);
     
-    // Add zoom control to top right
     L.control.zoom({
       position: 'topright'
     }).addTo(this.map);
     
-    // Add attribution
     this.map.attributionControl.setPrefix('Leaflet');
     
-    // Add base layer
     this.addBaseLayer();
-    
-    // Add home marker
     this.addHomeMarker(latitude, longitude);
-    
-    // Setup event listeners
     this.setupEventListeners();
     
-    // Monitor map viewport changes
     this.map.on('moveend zoomend', () => {
       this.onViewportChange();
     });
@@ -578,27 +596,16 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   setupEventListeners() {
-    // Play button
     this.querySelector('#play-btn').addEventListener('click', () => this.play());
-    
-    // Pause button
     this.querySelector('#pause-btn').addEventListener('click', () => this.pause());
-    
-    // Previous button
     this.querySelector('#prev-btn').addEventListener('click', () => this.previousFrame());
-    
-    // Next button
     this.querySelector('#next-btn').addEventListener('click', () => this.nextFrame());
-    
-    // Refresh button
     this.querySelector('#refresh-btn').addEventListener('click', () => this.refreshRadarData());
     
-    // Timeline slider
     this.querySelector('#timeline-slider').addEventListener('input', (e) => {
       this.goToFrame(parseInt(e.target.value));
     });
     
-    // Zoom controls
     this.querySelector('#zoom-in').addEventListener('click', () => {
       this.map.zoomIn();
     });
@@ -641,7 +648,7 @@ class LeafletBomRadarCard extends HTMLElement {
       await this.buildTimelineFromAllRadars();
       
       if (this.allTimestamps.length > 0) {
-        this.currentFrameIndex = this.allTimestamps.length - 1; // Start with most recent
+        this.currentFrameIndex = this.allTimestamps.length - 1;
         await this.displayCurrentFrame();
         this.updateTimeline();
         this.updateTimelineLabels();
@@ -657,7 +664,6 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   onViewportChange() {
-    // Debounce viewport changes to avoid excessive updates
     clearTimeout(this.updateViewportDebounce);
     this.updateViewportDebounce = setTimeout(() => {
       this.updateVisibleRadarsAndDisplay();
@@ -671,7 +677,6 @@ class LeafletBomRadarCard extends HTMLElement {
     
     await this.updateVisibleRadars();
     
-    // Check if visible radars changed or resolution changed
     const radarsChanged = !this.setsEqual(previousRadars, this.visibleRadars);
     const resolutionChanged = previousResolution !== newResolution;
     
@@ -685,15 +690,10 @@ class LeafletBomRadarCard extends HTMLElement {
         console.log(`Visible radars changed. Now showing: ${Array.from(this.visibleRadars).join(', ')}`);
       }
       
-      // Load timestamps for new radars or new resolution
       await this.loadTimestampsForVisibleRadars();
-      
-      // Rebuild timeline
       await this.buildTimelineFromAllRadars();
       
-      // Update display
       if (this.allTimestamps.length > 0) {
-        // Try to maintain similar timestamp position
         this.currentFrameIndex = Math.min(this.currentFrameIndex, this.allTimestamps.length - 1);
         await this.displayCurrentFrame();
         this.updateTimeline();
@@ -702,8 +702,6 @@ class LeafletBomRadarCard extends HTMLElement {
       
       this.updateRadarInfo();
       this.updateStatusInfo();
-      
-      // Remove overlays for radars no longer visible
       this.cleanupHiddenRadars();
     }
   }
@@ -714,15 +712,11 @@ class LeafletBomRadarCard extends HTMLElement {
     
     this.visibleRadars.clear();
     
-    // Find all radars within viewport or within max distance
     for (const [id, radar] of Object.entries(this.radarLocations)) {
       const radarLatLng = L.latLng(radar.lat, radar.lon);
-      
-      // Check if radar is within bounds or within max distance from center
       const distanceKm = center.distanceTo(radarLatLng) / 1000;
       
       if (bounds.contains(radarLatLng) || distanceKm <= this.config.max_radar_distance_km) {
-        // Additionally check if radar coverage would be visible in viewport
         if (this.isRadarCoverageVisible(radar, bounds)) {
           this.visibleRadars.add(id);
         }
@@ -733,13 +727,10 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   isRadarCoverageVisible(radar, bounds) {
-    // Check if any part of the radar's coverage area intersects with viewport
-    // Use current resolution to determine coverage
     const resolution = this.getResolutionForZoom(this.map.getZoom());
-    const maxRadiusKm = Math.max(256, resolution); // At least check 256km coverage
+    const maxRadiusKm = Math.max(256, resolution);
     const radarLatLng = L.latLng(radar.lat, radar.lon);
     
-    // Calculate approximate bounds of radar coverage
     const latDelta = maxRadiusKm / 111.32;
     const lonDelta = maxRadiusKm / (111.32 * Math.cos(radar.lat * Math.PI / 180));
     
@@ -748,7 +739,6 @@ class LeafletBomRadarCard extends HTMLElement {
       [radar.lat + latDelta, radar.lon + lonDelta]
     );
     
-    // Check if radar bounds intersect with viewport bounds
     return bounds.intersects(radarBounds);
   }
 
@@ -756,7 +746,6 @@ class LeafletBomRadarCard extends HTMLElement {
     const fetchPromises = [];
     
     for (const radarId of this.visibleRadars) {
-      // Check if we need to fetch timestamps
       const lastFetch = this.lastTimestampFetch.get(radarId) || 0;
       const timeSinceLastFetch = Date.now() - lastFetch;
       
@@ -773,7 +762,6 @@ class LeafletBomRadarCard extends HTMLElement {
 
   async fetchTimestampsForRadar(radarId) {
     try {
-      // Determine resolution based on current zoom
       const zoom = this.map.getZoom();
       const resolution = this.getResolutionForZoom(zoom);
       
@@ -792,7 +780,6 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   async buildTimelineFromAllRadars() {
-    // Collect all unique timestamps from all visible radars
     const timestampSet = new Set();
     
     for (const radarId of this.visibleRadars) {
@@ -800,7 +787,6 @@ class LeafletBomRadarCard extends HTMLElement {
       timestamps.forEach(ts => timestampSet.add(ts));
     }
     
-    // Sort timestamps chronologically (oldest to newest)
     this.allTimestamps = Array.from(timestampSet).sort();
     
     console.log(`Built timeline with ${this.allTimestamps.length} unique timestamps`);
@@ -811,13 +797,10 @@ class LeafletBomRadarCard extends HTMLElement {
     
     const currentTimestamp = this.allTimestamps[this.currentFrameIndex];
     
-    // Display all visible radars for this timestamp
     const displayPromises = [];
     
     for (const radarId of this.visibleRadars) {
       const timestamps = this.radarTimestamps.get(radarId) || [];
-      
-      // Find closest available timestamp for this radar
       const closestTimestamp = this.findClosestTimestamp(timestamps, currentTimestamp);
       
       if (closestTimestamp) {
@@ -833,7 +816,6 @@ class LeafletBomRadarCard extends HTMLElement {
   findClosestTimestamp(timestamps, targetTimestamp) {
     if (timestamps.length === 0) return null;
     
-    // Find the timestamp closest to (but not later than) the target
     let closest = null;
     let minDiff = Infinity;
     
@@ -847,19 +829,16 @@ class LeafletBomRadarCard extends HTMLElement {
       }
     }
     
-    // If no timestamp before target, use earliest available
     return closest || timestamps[0];
   }
 
   async displayRadarImage(radarId, timestamp) {
-    // Determine resolution based on current zoom
     const zoom = this.map.getZoom();
     const resolution = this.getResolutionForZoom(zoom);
     
     const cacheKey = `${radarId}_${timestamp}_${resolution}`;
     const overlayId = `${radarId}_overlay`;
     
-    // Get or cache image URL
     if (!this.imageCache.has(cacheKey)) {
       const imageUrl = `${this.ingressUrl}/api/radar/${radarId}/${timestamp}/${resolution}`;
       this.imageCache.set(cacheKey, imageUrl);
@@ -868,14 +847,11 @@ class LeafletBomRadarCard extends HTMLElement {
     const imageUrl = this.imageCache.get(cacheKey);
     const radar = this.radarLocations[radarId];
     
-    // Calculate bounds for this radar based on resolution
     const bounds = this.calculateRadarBounds(radar, resolution);
     
-    // Remove old overlay for this radar if exists
     if (this.activeOverlays.has(overlayId)) {
       const oldOverlay = this.activeOverlays.get(overlayId);
       
-      // Fade out old overlay
       if (oldOverlay._image) {
         oldOverlay._image.style.transition = `opacity ${this.config.fade_duration}ms`;
         oldOverlay._image.style.opacity = '0';
@@ -888,9 +864,8 @@ class LeafletBomRadarCard extends HTMLElement {
       }
     }
     
-    // Create new overlay
     const overlay = L.imageOverlay(imageUrl, bounds, {
-      opacity: 0, // Start invisible for fade-in
+      opacity: 0,
       interactive: false,
       crossOrigin: 'anonymous',
       className: `radar-overlay radar-${radarId}`
@@ -899,7 +874,6 @@ class LeafletBomRadarCard extends HTMLElement {
     overlay.addTo(this.map);
     this.activeOverlays.set(overlayId, overlay);
     
-    // Fade in new overlay
     overlay.on('load', () => {
       if (overlay._image) {
         overlay._image.style.transition = `opacity ${this.config.fade_duration}ms`;
@@ -914,15 +888,12 @@ class LeafletBomRadarCard extends HTMLElement {
     let radiusKm;
     
     if (resolution) {
-      // Use provided resolution
       radiusKm = resolution;
     } else {
-      // Determine radius based on zoom level
       const zoom = this.map.getZoom();
       radiusKm = this.getResolutionForZoom(zoom);
     }
     
-    // Convert radius to lat/lon degrees
     const latDelta = radiusKm / 111.32;
     const lonDelta = radiusKm / (111.32 * Math.cos(radar.lat * Math.PI / 180));
     
@@ -933,12 +904,10 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   cleanupHiddenRadars() {
-    // Remove overlays for radars no longer visible
     for (const [overlayId, overlay] of this.activeOverlays.entries()) {
       const radarId = overlayId.replace('_overlay', '');
       
       if (!this.visibleRadars.has(radarId)) {
-        // Fade out and remove
         if (overlay._image) {
           overlay._image.style.transition = `opacity ${this.config.fade_duration}ms`;
           overlay._image.style.opacity = '0';
@@ -1019,8 +988,8 @@ class LeafletBomRadarCard extends HTMLElement {
     if (this.allTimestamps.length === 0) return;
     
     const labelsContainer = this.querySelector('#timeline-labels');
-    const first = this.allTimestamps[0]; // Oldest
-    const last = this.allTimestamps[this.allTimestamps.length - 1]; // Newest
+    const first = this.allTimestamps[0];
+    const last = this.allTimestamps[this.allTimestamps.length - 1];
     
     const formatTime = (ts) => {
       const hour = ts.substring(8, 10);
@@ -1042,10 +1011,8 @@ class LeafletBomRadarCard extends HTMLElement {
     this.showLoading(true);
     
     try {
-      // Clear timestamp cache to force refresh
       this.lastTimestampFetch.clear();
       
-      // Force refresh timestamps for all visible radars
       const fetchPromises = [];
       for (const radarId of this.visibleRadars) {
         fetchPromises.push(this.fetchTimestampsForRadar(radarId));
@@ -1053,11 +1020,9 @@ class LeafletBomRadarCard extends HTMLElement {
       
       await Promise.allSettled(fetchPromises);
       
-      // Rebuild timeline
       await this.buildTimelineFromAllRadars();
       
       if (this.allTimestamps.length > 0) {
-        // Go to most recent frame
         this.currentFrameIndex = this.allTimestamps.length - 1;
         await this.displayCurrentFrame();
         this.updateTimeline();
@@ -1151,8 +1116,8 @@ class LeafletBomRadarCard extends HTMLElement {
   getCardSize() {
     return 6;
   }
-  
-  // ADD THESE NEW METHODS:
+
+  // ADDED: Layout options for Sections dashboard support
   getLayoutOptions() {
     return {
       grid_columns: 4,
@@ -1162,22 +1127,48 @@ class LeafletBomRadarCard extends HTMLElement {
       grid_max_rows: 8
     };
   }
-  
+
+  // ADDED: Properties definition for Sections
   static get properties() {
     return {
       hass: {},
       config: {}
     };
   }
-  
+
+  // UPDATED: Enhanced getConfigElement with better error handling
   static getConfigElement() {
-    // Make sure editor is registered
     if (!customElements.get('leaflet-bom-radar-card-editor')) {
-      console.warn('Editor not registered yet, may need to load it');
+      console.warn('BoM Radar Card: Editor custom element not registered yet');
+      console.warn('Make sure leaflet-bom-radar-card-editor.js is loaded');
+      
+      const placeholder = document.createElement('div');
+      placeholder.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--primary-text-color);">
+          <p>⚠️ Card editor is loading...</p>
+          <p style="font-size: 12px; color: var(--secondary-text-color);">
+            If this message persists, check that leaflet-bom-radar-card-editor.js is loaded.
+          </p>
+        </div>
+      `;
+      
+      setTimeout(() => {
+        if (customElements.get('leaflet-bom-radar-card-editor')) {
+          console.log('Editor now available, please close and reopen the card config');
+        }
+      }, 1000);
+      
+      return placeholder;
     }
+    
     return document.createElement("leaflet-bom-radar-card-editor");
   }
-  
+
+  // ADDED: Check if editor is available
+  static get editorAvailable() {
+    return customElements.get('leaflet-bom-radar-card-editor') !== undefined;
+  }
+
   static getStubConfig() {
     return {
       cache_hours: 2,
@@ -1194,6 +1185,7 @@ class LeafletBomRadarCard extends HTMLElement {
 
 customElements.define('leaflet-bom-radar-card', LeafletBomRadarCard);
 
+// UPDATED: Register with Sections support
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'leaflet-bom-radar-card',
@@ -1206,43 +1198,53 @@ window.customCards.push({
     height: 'fixed',
     min_height: 4,
     default_height: 6
-  });
+  }
+});
 
-console.info(
-  '%c LEAFLET-BOM-RADAR-CARD %c Version 2.0.0 ',
-  'color: orange; font-weight: bold; background: black',
-  'color: white; font-weight: bold; background: dimgray'
-);
-
-// Dynamically load the editor
+// ADDED: Auto-load the editor
 (function loadEditor() {
-  // Check if editor already loaded
   if (customElements.get('leaflet-bom-radar-card-editor')) {
-    console.log('Editor already loaded');
+    console.log('%c BoM Radar Card: Editor already loaded', 
+                'color: green; font-weight: bold');
     return;
   }
   
-  // Get the path to this script
   const currentScript = document.currentScript || 
                        Array.from(document.querySelectorAll('script'))
-                            .find(s => s.src.includes('leaflet-bom-radar-card.js'));
+                            .find(s => s.src && s.src.includes('leaflet-bom-radar-card.js'));
   
-  if (currentScript) {
+  if (currentScript && currentScript.src) {
     const scriptPath = currentScript.src;
     const editorPath = scriptPath.replace('leaflet-bom-radar-card.js', 
                                           'leaflet-bom-radar-card-editor.js');
     
-    // Load the editor script
+    console.log('%c BoM Radar Card: Loading editor from ' + editorPath,
+                'color: blue; font-weight: bold');
+    
     const editorScript = document.createElement('script');
     editorScript.src = editorPath;
     editorScript.type = 'module';
+    
     editorScript.onerror = () => {
-      console.error('Failed to load card editor');
+      console.error('%c BoM Radar Card: Failed to load editor from ' + editorPath,
+                    'color: red; font-weight: bold');
+      console.error('Make sure leaflet-bom-radar-card-editor.js is in the same directory');
     };
+    
     editorScript.onload = () => {
-      console.log('Card editor loaded successfully');
+      console.log('%c BoM Radar Card: Editor loaded successfully!',
+                  'color: green; font-weight: bold');
     };
     
     document.head.appendChild(editorScript);
+  } else {
+    console.warn('BoM Radar Card: Could not determine script path for editor auto-loading');
+    console.warn('You may need to manually add leaflet-bom-radar-card-editor.js as a resource');
   }
 })();
+
+console.info(
+  '%c LEAFLET-BOM-RADAR-CARD %c Version 2.0.1 - With Fixes ',
+  'color: orange; font-weight: bold; background: black',
+  'color: white; font-weight: bold; background: dimgray'
+);
