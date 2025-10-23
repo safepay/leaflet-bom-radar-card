@@ -734,22 +734,114 @@ class LeafletBomRadarCard extends HTMLElement {
     }
   }
 
-  async fetchTimestampsForRadar(radarId) {
-    try {
-      const limit = Math.ceil((this.config.cache_hours * 60) / 10);
-      const response = await this.apiRequest(`/api/timestamps/${radarId}?limit=${limit}`);
-      const data = await response.json();
+async fetchTimestampsForRadar(radarId) {
+  try {
+    // Determine resolution based on current zoom
+    const zoom = this.map.getZoom();
+    let resolution;
+    if (zoom >= 11) {
+      resolution = 64;
+    } else if (zoom >= 9) {
+      resolution = 128;
+    } else {
+      resolution = 256;
+    }
+    
+    const limit = Math.ceil((this.config.cache_hours * 60) / 10);
+    const response = await this.apiRequest(`/api/timestamps/${radarId}/${resolution}?limit=${limit}`);
+    const data = await response.json();
+    
+    this.radarTimestamps.set(radarId, data.timestamps || []);
+    this.lastTimestampFetch.set(radarId, Date.now());
+    
+    console.log(`Fetched ${data.timestamps.length} timestamps for ${radarId} at ${resolution}km`);
+  } catch (error) {
+    console.error(`Failed to fetch timestamps for ${radarId}:`, error);
+    this.radarTimestamps.set(radarId, []);
+  }
+}
+
+async displayRadarImage(radarId, timestamp) {
+  // Determine resolution based on current zoom
+  const zoom = this.map.getZoom();
+  let resolution;
+  if (zoom >= 11) {
+    resolution = 64;
+  } else if (zoom >= 9) {
+    resolution = 128;
+  } else {
+    resolution = 256;
+  }
+  
+  const cacheKey = `${radarId}_${timestamp}_${resolution}`;
+  const overlayId = `${radarId}_overlay`;
+  
+  // Get or cache image URL
+  if (!this.imageCache.has(cacheKey)) {
+    const imageUrl = `${this.ingressUrl}/api/radar/${radarId}/${timestamp}/${resolution}`;
+    this.imageCache.set(cacheKey, imageUrl);
+  }
+  
+  const imageUrl = this.imageCache.get(cacheKey);
+  const radar = this.radarLocations[radarId];
+  
+  // Calculate bounds for this radar based on resolution
+  // const bounds = this.calculateRadarBoundsForResolution(radar, resolution);
+  const bounds = this.calculateRadarBounds(radar, resolution);
+  
+  // Remove old overlay for this radar if exists
+  if (this.activeOverlays.has(overlayId)) {
+    const oldOverlay = this.activeOverlays.get(overlayId);
+    
+    // Fade out old overlay
+    if (oldOverlay._image) {
+      oldOverlay._image.style.transition = `opacity ${this.config.fade_duration}ms`;
+      oldOverlay._image.style.opacity = '0';
       
-      this.radarTimestamps.set(radarId, data.timestamps || []);
-      this.lastTimestampFetch.set(radarId, Date.now());
-      
-      console.log(`Fetched ${data.timestamps.length} timestamps for ${radarId}`);
-    } catch (error) {
-      console.error(`Failed to fetch timestamps for ${radarId}:`, error);
-      this.radarTimestamps.set(radarId, []);
+      setTimeout(() => {
+        this.map.removeLayer(oldOverlay);
+      }, this.config.fade_duration);
+    } else {
+      this.map.removeLayer(oldOverlay);
     }
   }
+  
+  // Create new overlay
+  const overlay = L.imageOverlay(imageUrl, bounds, {
+    opacity: 0, // Start invisible for fade-in
+    interactive: false,
+    crossOrigin: 'anonymous',
+    className: `radar-overlay radar-${radarId}`
+  });
+  
+  overlay.addTo(this.map);
+  this.activeOverlays.set(overlayId, overlay);
+  
+  // Fade in new overlay
+  overlay.on('load', () => {
+    if (overlay._image) {
+      overlay._image.style.transition = `opacity ${this.config.fade_duration}ms`;
+      setTimeout(() => {
+        overlay.setOpacity(this.config.opacity);
+      }, 10);
+    }
+  });
+}
 
+calculateRadarBoundsForResolution(radar, resolution) {
+  // Use the actual resolution requested
+  const radiusKm = resolution;
+  
+  // Convert radius to lat/lon degrees
+  const latDelta = radiusKm / 111.32;
+  const lonDelta = radiusKm / (111.32 * Math.cos(radar.lat * Math.PI / 180));
+  
+  return [
+    [radar.lat - latDelta, radar.lon - lonDelta],
+    [radar.lat + latDelta, radar.lon + lonDelta]
+  ];
+}
+  
   async buildTimelineFromAllRadars() {
     // Collect all unique timestamps from all visible radars
     const timestampSet = new Set();
@@ -865,19 +957,24 @@ class LeafletBomRadarCard extends HTMLElement {
     });
   }
 
-  calculateRadarBounds(radar) {
-    const zoom = this.map.getZoom();
-    
-    // Determine radius based on zoom level
+  calculateRadarBounds(radar, resolution = null) {
     let radiusKm;
-    if (zoom >= 11) {
-      radiusKm = 64;
-    } else if (zoom >= 9) {
-      radiusKm = 128;
-    } else if (zoom >= 7) {
-      radiusKm = 256;
+    
+    if (resolution) {
+      // Use provided resolution
+      radiusKm = resolution;
     } else {
-      radiusKm = 512;
+      // Determine radius based on zoom level
+      const zoom = this.map.getZoom();
+      if (zoom >= 11) {
+        radiusKm = 64;
+      } else if (zoom >= 9) {
+        radiusKm = 128;
+      } else if (zoom >= 7) {
+        radiusKm = 256;
+      } else {
+        radiusKm = 512;
+      }
     }
     
     // Convert radius to lat/lon degrees
@@ -889,7 +986,7 @@ class LeafletBomRadarCard extends HTMLElement {
       [radar.lat + latDelta, radar.lon + lonDelta]
     ];
   }
-
+  
   cleanupHiddenRadars() {
     // Remove overlays for radars no longer visible
     for (const [overlayId, overlay] of this.activeOverlays.entries()) {
