@@ -3,12 +3,18 @@
 
 class LeafletBomRadarCardEditor extends HTMLElement {
   setConfig(config) {
-    this._config = config;
-    this.render();
+    this._config = { ...config };
+    if (this._rendered) {
+      this.render();
+    }
   }
 
   set hass(hass) {
     this._hass = hass;
+    if (!this._rendered) {
+      this.render();
+      this._rendered = true;
+    }
   }
 
   configChanged(newConfig) {
@@ -87,7 +93,6 @@ class LeafletBomRadarCardEditor extends HTMLElement {
             min="1"
             max="24"
             .value="${this._config.cache_hours || 2}"
-            @change="${this._valueChanged}"
           />
         </div>
         <div class="help-text">
@@ -102,7 +107,6 @@ class LeafletBomRadarCardEditor extends HTMLElement {
             min="5"
             max="15"
             .value="${this._config.default_zoom || 8}"
-            @change="${this._valueChanged}"
           />
         </div>
         <div class="help-text">
@@ -118,7 +122,6 @@ class LeafletBomRadarCardEditor extends HTMLElement {
             max="1"
             step="0.1"
             .value="${this._config.opacity || 0.7}"
-            @change="${this._valueChanged}"
           />
         </div>
         <div class="help-text">
@@ -127,8 +130,8 @@ class LeafletBomRadarCardEditor extends HTMLElement {
         
         <div class="option">
           <label for="base_layer">Base Map Layer</label>
-          <select id="base_layer" @change="${this._valueChanged}">
-            <option value="osm" ${this._config.base_layer === 'osm' ? 'selected' : ''}>
+          <select id="base_layer">
+            <option value="osm" ${this._config.base_layer === 'osm' || !this._config.base_layer ? 'selected' : ''}>
               OpenStreetMap
             </option>
             <option value="google" ${this._config.base_layer === 'google' ? 'selected' : ''}>
@@ -148,7 +151,6 @@ class LeafletBomRadarCardEditor extends HTMLElement {
             max="2000"
             step="100"
             .value="${this._config.playback_speed || 500}"
-            @change="${this._valueChanged}"
           />
         </div>
         <div class="help-text">
@@ -164,7 +166,6 @@ class LeafletBomRadarCardEditor extends HTMLElement {
             max="1000"
             step="50"
             .value="${this._config.fade_duration || 300}"
-            @change="${this._valueChanged}"
           />
         </div>
         <div class="help-text">
@@ -182,7 +183,6 @@ class LeafletBomRadarCardEditor extends HTMLElement {
             max="1500"
             step="100"
             .value="${this._config.max_radar_distance_km || 800}"
-            @change="${this._valueChanged}"
           />
         </div>
         <div class="help-text">
@@ -196,12 +196,29 @@ class LeafletBomRadarCardEditor extends HTMLElement {
           <input
             type="checkbox"
             id="show_legend"
-            .checked="${this._config.show_legend !== false}"
-            @change="${this._valueChanged}"
+            ${this._config.show_legend !== false ? 'checked' : ''}
           />
         </div>
       </div>
     `;
+
+    // Attach event listeners after rendering
+    this.attachEventListeners();
+  }
+
+  attachEventListeners() {
+    // Get all input elements
+    const inputs = this.querySelectorAll('input, select');
+    
+    inputs.forEach(input => {
+      input.addEventListener('change', (e) => this._valueChanged(e));
+      input.addEventListener('input', (e) => {
+        // For number inputs, also listen to input event for real-time updates
+        if (e.target.type === 'number') {
+          this._valueChanged(e);
+        }
+      });
+    });
   }
 
   _valueChanged(ev) {
@@ -217,19 +234,26 @@ class LeafletBomRadarCardEditor extends HTMLElement {
       value = target.checked;
     } else if (target.type === 'number') {
       value = parseFloat(target.value);
+      // Validate number is within bounds
+      if (isNaN(value)) {
+        return;
+      }
     } else {
       value = target.value;
     }
 
+    // Don't update if value hasn't changed
     if (this._config[configValue] === value) {
       return;
     }
 
+    // Create new config with updated value
     const newConfig = {
       ...this._config,
       [configValue]: value
     };
 
+    this._config = newConfig;
     this.configChanged(newConfig);
   }
 }
