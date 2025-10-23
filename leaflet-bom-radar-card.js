@@ -508,45 +508,13 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   async tryCommonIngressPaths() {
-    // Try to get actual add-on info from supervisor
-    if (this._hass && this._hass.callWS) {
-      try {
-        const addons = await this._hass.callWS({
-          type: 'supervisor/api',
-          endpoint: '/addons',
-          method: 'get'
-        });
-        
-        if (addons && addons.data && addons.data.addons) {
-          // Look for our add-on by name or slug
-          const bomAddon = addons.data.addons.find(addon => 
-            addon.name && addon.name.toLowerCase().includes('bom') && 
-            addon.name.toLowerCase().includes('radar')
-          );
-          
-          if (bomAddon && bomAddon.slug) {
-            const testPath = `/api/hassio_ingress/${bomAddon.slug}`;
-            console.log('BoM Radar Card: Found add-on slug:', bomAddon.slug);
-            if (await this.testIngressUrl(testPath)) {
-              return testPath;
-            }
-          }
-        }
-      } catch (error) {
-        console.warn('BoM Radar Card: Could not query add-ons:', error.message);
-      }
-    }
-    
-    // Fallback to common paths
+    // Use the slug from config.yaml
     const commonPaths = [
       '/api/hassio_ingress/bom_radar_proxy',
-      '/api/hassio_ingress/local_bom_radar_proxy',
-      '/api/hassio_ingress/bom-radar-proxy',
-      '/local/bom-radar-proxy'
     ];
     
     for (const path of commonPaths) {
-      console.log('BoM Radar Card: Testing path:', path);
+      console.log('BoM Radar Card: Testing common path:', path);
       if (await this.testIngressUrl(path)) {
         return path;
       }
@@ -554,7 +522,7 @@ class LeafletBomRadarCard extends HTMLElement {
     
     throw new Error('No common ingress paths work');
   }
-
+  
   async testIngressUrl(url) {
     try {
       const testUrl = `${url}/health`;
