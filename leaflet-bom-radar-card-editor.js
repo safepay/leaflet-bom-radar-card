@@ -259,3 +259,10 @@ class LeafletBomRadarCardEditor extends HTMLElement {
 }
 
 customElements.define("leaflet-bom-radar-card-editor", LeafletBomRadarCardEditor);
+
+// Add logging
+console.info(
+  '%c LEAFLET-BOM-RADAR-CARD-EDITOR %c Registered ',
+  'color: green; font-weight: bold; background: black',
+  'color: white; font-weight: bold; background: dimgray'
+);
