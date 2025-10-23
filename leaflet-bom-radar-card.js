@@ -450,22 +450,20 @@ class LeafletBomRadarCard extends HTMLElement {
   }
   
   async getIngressUrl() {
-    const methods = [
-      () => this.getIngressFromAPI(),
-      () => this.detectIngressFromPath(),
-      () => this.tryCommonIngressPaths()
+    // For add-ons, the ingress path follows a predictable pattern
+    // The slug from config.yaml is: bom_radar_proxy
+    const possiblePaths = [
+      '/api/hassio_ingress/bom_radar_proxy',
+      // Fallback for local development
+      '/api/hassio_ingress/local_bom_radar_proxy'
     ];
     
-    for (const method of methods) {
-      try {
-        const url = await method();
-        if (url && await this.testIngressUrl(url)) {
-          this.ingressUrl = url;
-          console.log('BoM Radar Card: Ingress URL validated:', url);
-          return;
-        }
-      } catch (error) {
-        console.warn('BoM Radar Card: Ingress detection method failed:', error.message);
+    for (const path of possiblePaths) {
+      console.log('BoM Radar Card: Testing ingress path:', path);
+      if (await this.testIngressUrl(path)) {
+        this.ingressUrl = path;
+        console.log('BoM Radar Card: Ingress URL validated:', path);
+        return;
       }
     }
     
