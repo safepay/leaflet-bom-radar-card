@@ -1,5 +1,5 @@
 // leaflet-bom-radar-card.js
-// Version 2.0.0 - Dynamic Multi-Radar Support
+// Version 2.0.0 - Dynamic Multi-Radar Support with Resolution
 
 class LeafletBomRadarCard extends HTMLElement {
   constructor() {
@@ -18,6 +18,7 @@ class LeafletBomRadarCard extends HTMLElement {
     this.MIN_FETCH_INTERVAL = 600000; // 10 minutes
     this.ingressUrl = null;
     this.updateViewportDebounce = null;
+    this.currentResolution = null;
   }
 
   setConfig(config) {
@@ -54,7 +55,7 @@ class LeafletBomRadarCard extends HTMLElement {
     await this.setupMap();
     await this.initializeViewport();
   }
-
+  
   async getIngressUrl() {
     try {
       this.ingressUrl = '/api/hassio_ingress/' + await this.getIngressToken();
@@ -139,8 +140,8 @@ class LeafletBomRadarCard extends HTMLElement {
       
       // Fallback
       this.radarLocations = {
-        'IDR023': { 
-          id: 'IDR023',
+        'IDR022': { 
+          id: 'IDR022',
           name: 'Melbourne', 
           lat: -37.855222, 
           lon: 144.755417, 
@@ -606,6 +607,16 @@ class LeafletBomRadarCard extends HTMLElement {
     });
   }
 
+  getResolutionForZoom(zoom) {
+    if (zoom >= 11) {
+      return 64;
+    } else if (zoom >= 9) {
+      return 128;
+    } else {
+      return 256;
+    }
+  }
+
   async initializeViewport() {
     this.showLoading(true);
     this.updateStatusDisplay('Detecting visible radars...');
@@ -648,15 +659,26 @@ class LeafletBomRadarCard extends HTMLElement {
 
   async updateVisibleRadarsAndDisplay() {
     const previousRadars = new Set(this.visibleRadars);
+    const previousResolution = this.currentResolution;
+    const newResolution = this.getResolutionForZoom(this.map.getZoom());
+    
     await this.updateVisibleRadars();
     
-    // Check if visible radars changed
+    // Check if visible radars changed or resolution changed
     const radarsChanged = !this.setsEqual(previousRadars, this.visibleRadars);
+    const resolutionChanged = previousResolution !== newResolution;
     
-    if (radarsChanged) {
-      console.log(`Visible radars changed. Now showing: ${Array.from(this.visibleRadars).join(', ')}`);
+    if (radarsChanged || resolutionChanged) {
+      if (resolutionChanged) {
+        console.log(`Resolution changed from ${previousResolution}km to ${newResolution}km`);
+        this.currentResolution = newResolution;
+      }
       
-      // Load timestamps for new radars
+      if (radarsChanged) {
+        console.log(`Visible radars changed. Now showing: ${Array.from(this.visibleRadars).join(', ')}`);
+      }
+      
+      // Load timestamps for new radars or new resolution
       await this.loadTimestampsForVisibleRadars();
       
       // Rebuild timeline
@@ -672,6 +694,7 @@ class LeafletBomRadarCard extends HTMLElement {
       }
       
       this.updateRadarInfo();
+      this.updateStatusInfo();
       
       // Remove overlays for radars no longer visible
       this.cleanupHiddenRadars();
@@ -704,8 +727,9 @@ class LeafletBomRadarCard extends HTMLElement {
 
   isRadarCoverageVisible(radar, bounds) {
     // Check if any part of the radar's coverage area intersects with viewport
-    // Radar coverage is approximately 512km radius (max range)
-    const maxRadiusKm = 512;
+    // Use current resolution to determine coverage
+    const resolution = this.getResolutionForZoom(this.map.getZoom());
+    const maxRadiusKm = Math.max(256, resolution); // At least check 256km coverage
     const radarLatLng = L.latLng(radar.lat, radar.lon);
     
     // Calculate approximate bounds of radar coverage
@@ -740,114 +764,26 @@ class LeafletBomRadarCard extends HTMLElement {
     }
   }
 
-async fetchTimestampsForRadar(radarId) {
-  try {
-    // Determine resolution based on current zoom
-    const zoom = this.map.getZoom();
-    let resolution;
-    if (zoom >= 11) {
-      resolution = 64;
-    } else if (zoom >= 9) {
-      resolution = 128;
-    } else {
-      resolution = 256;
-    }
-    
-    const limit = Math.ceil((this.config.cache_hours * 60) / 10);
-    const response = await this.apiRequest(`/api/timestamps/${radarId}/${resolution}?limit=${limit}`);
-    const data = await response.json();
-    
-    this.radarTimestamps.set(radarId, data.timestamps || []);
-    this.lastTimestampFetch.set(radarId, Date.now());
-    
-    console.log(`Fetched ${data.timestamps.length} timestamps for ${radarId} at ${resolution}km`);
-  } catch (error) {
-    console.error(`Failed to fetch timestamps for ${radarId}:`, error);
-    this.radarTimestamps.set(radarId, []);
-  }
-}
-
-async displayRadarImage(radarId, timestamp) {
-  // Determine resolution based on current zoom
-  const zoom = this.map.getZoom();
-  let resolution;
-  if (zoom >= 11) {
-    resolution = 64;
-  } else if (zoom >= 9) {
-    resolution = 128;
-  } else {
-    resolution = 256;
-  }
-  
-  const cacheKey = `${radarId}_${timestamp}_${resolution}`;
-  const overlayId = `${radarId}_overlay`;
-  
-  // Get or cache image URL
-  if (!this.imageCache.has(cacheKey)) {
-    const imageUrl = `${this.ingressUrl}/api/radar/${radarId}/${timestamp}/${resolution}`;
-    this.imageCache.set(cacheKey, imageUrl);
-  }
-  
-  const imageUrl = this.imageCache.get(cacheKey);
-  const radar = this.radarLocations[radarId];
-  
-  // Calculate bounds for this radar based on resolution
-  // const bounds = this.calculateRadarBoundsForResolution(radar, resolution);
-  const bounds = this.calculateRadarBounds(radar, resolution);
-  
-  // Remove old overlay for this radar if exists
-  if (this.activeOverlays.has(overlayId)) {
-    const oldOverlay = this.activeOverlays.get(overlayId);
-    
-    // Fade out old overlay
-    if (oldOverlay._image) {
-      oldOverlay._image.style.transition = `opacity ${this.config.fade_duration}ms`;
-      oldOverlay._image.style.opacity = '0';
+  async fetchTimestampsForRadar(radarId) {
+    try {
+      // Determine resolution based on current zoom
+      const zoom = this.map.getZoom();
+      const resolution = this.getResolutionForZoom(zoom);
       
-      setTimeout(() => {
-        this.map.removeLayer(oldOverlay);
-      }, this.config.fade_duration);
-    } else {
-      this.map.removeLayer(oldOverlay);
+      const limit = Math.ceil((this.config.cache_hours * 60) / 10);
+      const response = await this.apiRequest(`/api/timestamps/${radarId}/${resolution}?limit=${limit}`);
+      const data = await response.json();
+      
+      this.radarTimestamps.set(radarId, data.timestamps || []);
+      this.lastTimestampFetch.set(radarId, Date.now());
+      
+      console.log(`Fetched ${data.timestamps.length} timestamps for ${radarId} at ${resolution}km`);
+    } catch (error) {
+      console.error(`Failed to fetch timestamps for ${radarId}:`, error);
+      this.radarTimestamps.set(radarId, []);
     }
   }
-  
-  // Create new overlay
-  const overlay = L.imageOverlay(imageUrl, bounds, {
-    opacity: 0, // Start invisible for fade-in
-    interactive: false,
-    crossOrigin: 'anonymous',
-    className: `radar-overlay radar-${radarId}`
-  });
-  
-  overlay.addTo(this.map);
-  this.activeOverlays.set(overlayId, overlay);
-  
-  // Fade in new overlay
-  overlay.on('load', () => {
-    if (overlay._image) {
-      overlay._image.style.transition = `opacity ${this.config.fade_duration}ms`;
-      setTimeout(() => {
-        overlay.setOpacity(this.config.opacity);
-      }, 10);
-    }
-  });
-}
 
-calculateRadarBoundsForResolution(radar, resolution) {
-  // Use the actual resolution requested
-  const radiusKm = resolution;
-  
-  // Convert radius to lat/lon degrees
-  const latDelta = radiusKm / 111.32;
-  const lonDelta = radiusKm / (111.32 * Math.cos(radar.lat * Math.PI / 180));
-  
-  return [
-    [radar.lat - latDelta, radar.lon - lonDelta],
-    [radar.lat + latDelta, radar.lon + lonDelta]
-  ];
-}
-  
   async buildTimelineFromAllRadars() {
     // Collect all unique timestamps from all visible radars
     const timestampSet = new Set();
@@ -909,20 +845,24 @@ calculateRadarBoundsForResolution(radar, resolution) {
   }
 
   async displayRadarImage(radarId, timestamp) {
-    const cacheKey = `${radarId}_${timestamp}`;
+    // Determine resolution based on current zoom
+    const zoom = this.map.getZoom();
+    const resolution = this.getResolutionForZoom(zoom);
+    
+    const cacheKey = `${radarId}_${timestamp}_${resolution}`;
     const overlayId = `${radarId}_overlay`;
     
     // Get or cache image URL
     if (!this.imageCache.has(cacheKey)) {
-      const imageUrl = `${this.ingressUrl}/api/radar/${radarId}/${timestamp}`;
+      const imageUrl = `${this.ingressUrl}/api/radar/${radarId}/${timestamp}/${resolution}`;
       this.imageCache.set(cacheKey, imageUrl);
     }
     
     const imageUrl = this.imageCache.get(cacheKey);
     const radar = this.radarLocations[radarId];
     
-    // Calculate bounds for this radar
-    const bounds = this.calculateRadarBounds(radar);
+    // Calculate bounds for this radar based on resolution
+    const bounds = this.calculateRadarBounds(radar, resolution);
     
     // Remove old overlay for this radar if exists
     if (this.activeOverlays.has(overlayId)) {
@@ -972,15 +912,7 @@ calculateRadarBoundsForResolution(radar, resolution) {
     } else {
       // Determine radius based on zoom level
       const zoom = this.map.getZoom();
-      if (zoom >= 11) {
-        radiusKm = 64;
-      } else if (zoom >= 9) {
-        radiusKm = 128;
-      } else if (zoom >= 7) {
-        radiusKm = 256;
-      } else {
-        radiusKm = 512;
-      }
+      radiusKm = this.getResolutionForZoom(zoom);
     }
     
     // Convert radius to lat/lon degrees
@@ -992,7 +924,7 @@ calculateRadarBoundsForResolution(radar, resolution) {
       [radar.lat + latDelta, radar.lon + lonDelta]
     ];
   }
-  
+
   cleanupHiddenRadars() {
     // Remove overlays for radars no longer visible
     for (const [overlayId, overlay] of this.activeOverlays.entries()) {
@@ -1027,6 +959,16 @@ calculateRadarBoundsForResolution(radar, resolution) {
       radarInfo.textContent = count > 0 
         ? `Showing ${count} radar${count > 1 ? 's' : ''}: ${radarNames}`
         : 'No radars in view';
+    }
+  }
+
+  updateStatusInfo() {
+    const zoom = this.map.getZoom();
+    const resolution = this.getResolutionForZoom(zoom);
+    const statusInfo = this.querySelector('#status-info');
+    
+    if (statusInfo) {
+      statusInfo.textContent = `Zoom: ${zoom} (${resolution}km resolution)`;
     }
   }
 
@@ -1093,6 +1035,9 @@ calculateRadarBoundsForResolution(radar, resolution) {
     this.showLoading(true);
     
     try {
+      // Clear timestamp cache to force refresh
+      this.lastTimestampFetch.clear();
+      
       // Force refresh timestamps for all visible radars
       const fetchPromises = [];
       for (const radarId of this.visibleRadars) {
@@ -1224,9 +1169,9 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'leaflet-bom-radar-card',
   name: 'Leaflet BoM Radar Card',
-  description: 'Dynamic multi-radar display with viewport-based loading',
+  description: 'Dynamic multi-radar display with viewport-based loading and resolution support',
   preview: false,
-  documentationURL: 'https://github.com/safepay/leaflet-bom-radar',
+  documentationURL: 'https://github.com/safepay/leaflet-bom-radar-card',
 });
 
 console.info(
