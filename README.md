@@ -53,10 +53,12 @@ This card communicates with the BoM Radar Proxy add-on to fetch radar images. In
 ### Manual Installation
 
 1. Download `leaflet-bom-radar-card.js` and `leaflet-bom-radar-card-editor.js`
-2. Copy to `/config/www/leaflet-bom-radar-card/`
-3. Add resource in Settings → Dashboards → Resources:
+2. Copy both files to `/config/www/leaflet-bom-radar-card/`
+3. Add resources in Settings → Dashboards → Resources:
    - URL: `/local/leaflet-bom-radar-card/leaflet-bom-radar-card.js`
-   - Type: JavaScript Module
+     Type: JavaScript Module
+   - URL: `/local/leaflet-bom-radar-card/leaflet-bom-radar-card-editor.js`
+     Type: JavaScript Module
 4. Restart Home Assistant
 
 ## Configuration
