@@ -1209,3 +1209,36 @@ console.info(
   'color: orange; font-weight: bold; background: black',
   'color: white; font-weight: bold; background: dimgray'
 );
+
+// Dynamically load the editor
+(function loadEditor() {
+  // Check if editor already loaded
+  if (customElements.get('leaflet-bom-radar-card-editor')) {
+    console.log('Editor already loaded');
+    return;
+  }
+  
+  // Get the path to this script
+  const currentScript = document.currentScript || 
+                       Array.from(document.querySelectorAll('script'))
+                            .find(s => s.src.includes('leaflet-bom-radar-card.js'));
+  
+  if (currentScript) {
+    const scriptPath = currentScript.src;
+    const editorPath = scriptPath.replace('leaflet-bom-radar-card.js', 
+                                          'leaflet-bom-radar-card-editor.js');
+    
+    // Load the editor script
+    const editorScript = document.createElement('script');
+    editorScript.src = editorPath;
+    editorScript.type = 'module';
+    editorScript.onerror = () => {
+      console.error('Failed to load card editor');
+    };
+    editorScript.onload = () => {
+      console.log('Card editor loaded successfully');
+    };
+    
+    document.head.appendChild(editorScript);
+  }
+})();
