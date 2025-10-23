@@ -1,5 +1,5 @@
 // leaflet-bom-radar-card.js
-// Version 2.2.0 - Single File Solution: Card + Editor Combined
+// Version 2.2.1 - Auth Fix: Use WebSocket API for ingress detection
 // Dynamic Multi-Radar Support with Resolution
 
 // ============================================================================
@@ -473,19 +473,26 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   async getIngressFromAPI() {
-    const response = await fetch('/api/hassio/ingress/session', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        addon: 'local_bom_radar_proxy'
-      })
-    });
+    if (!this._hass || !this._hass.callWS) {
+      throw new Error('Home Assistant connection not available');
+    }
     
-    if (response.ok) {
-      const data = await response.json();
-      return `/api/hassio_ingress/${data.data.session}`;
+    try {
+      // Use WebSocket API instead of REST API to avoid auth issues
+      const result = await this._hass.callWS({
+        type: 'supervisor/api',
+        endpoint: '/ingress/session',
+        method: 'post',
+        data: {
+          addon: 'local_bom_radar_proxy'
+        }
+      });
+      
+      if (result && result.data && result.data.session) {
+        return `/api/hassio_ingress/${result.data.session}`;
+      }
+    } catch (error) {
+      console.warn('BoM Radar Card: WS API ingress detection failed:', error.message);
     }
     
     throw new Error('API ingress detection failed');
@@ -503,13 +510,45 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   async tryCommonIngressPaths() {
+    // Try to get actual add-on info from supervisor
+    if (this._hass && this._hass.callWS) {
+      try {
+        const addons = await this._hass.callWS({
+          type: 'supervisor/api',
+          endpoint: '/addons',
+          method: 'get'
+        });
+        
+        if (addons && addons.data && addons.data.addons) {
+          // Look for our add-on by name or slug
+          const bomAddon = addons.data.addons.find(addon => 
+            addon.name && addon.name.toLowerCase().includes('bom') && 
+            addon.name.toLowerCase().includes('radar')
+          );
+          
+          if (bomAddon && bomAddon.slug) {
+            const testPath = `/api/hassio_ingress/${bomAddon.slug}`;
+            console.log('BoM Radar Card: Found add-on slug:', bomAddon.slug);
+            if (await this.testIngressUrl(testPath)) {
+              return testPath;
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('BoM Radar Card: Could not query add-ons:', error.message);
+      }
+    }
+    
+    // Fallback to common paths
     const commonPaths = [
       '/api/hassio_ingress/bom_radar_proxy',
       '/api/hassio_ingress/local_bom_radar_proxy',
+      '/api/hassio_ingress/bom-radar-proxy',
       '/local/bom-radar-proxy'
     ];
     
     for (const path of commonPaths) {
+      console.log('BoM Radar Card: Testing path:', path);
       if (await this.testIngressUrl(path)) {
         return path;
       }
@@ -1567,7 +1606,7 @@ window.customCards.push({
 });
 
 console.info(
-  '%c LEAFLET-BOM-RADAR-CARD %c Version 2.2.0 - Single File (Card + Editor) ',
+  '%c LEAFLET-BOM-RADAR-CARD %c Version 2.2.1 - Auth Fix ',
   'color: orange; font-weight: bold; background: black',
   'color: white; font-weight: bold; background: dimgray'
 );
