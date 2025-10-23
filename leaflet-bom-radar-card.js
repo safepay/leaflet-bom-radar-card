@@ -1214,8 +1214,14 @@ class LeafletBomRadarCard extends HTMLElement {
     this.showLoading(true);
     this.updateStatusDisplay('Detecting visible radars...');
     
+    console.log('BoM Radar Card: Map bounds:', this.map.getBounds());
+    console.log('BoM Radar Card: Map center:', this.map.getCenter());
+    console.log('BoM Radar Card: Map zoom:', this.map.getZoom());
+    
     try {
       await this.updateVisibleRadars();
+      
+      console.log('BoM Radar Card: Visible radars:', Array.from(this.visibleRadars));
       
       if (this.visibleRadars.size === 0) {
         this.updateStatusDisplay('No radars in view. Pan or zoom out to see radar coverage.');
@@ -1225,7 +1231,7 @@ class LeafletBomRadarCard extends HTMLElement {
       
       await this.loadTimestampsForVisibleRadars();
       await this.buildTimelineFromAllRadars();
-      
+    
       if (this.allTimestamps.length > 0) {
         this.currentFrameIndex = this.allTimestamps.length - 1;
         await this.displayCurrentFrame();
