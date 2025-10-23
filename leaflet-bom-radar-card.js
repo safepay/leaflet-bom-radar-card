@@ -19,8 +19,23 @@ class LeafletBomRadarCard extends HTMLElement {
     this.ingressUrl = null;
     this.updateViewportDebounce = null;
     this.currentResolution = null;
+    this.isInSectionsDashboard = this._detectSectionsDashboard();
   }
 
+  _detectSectionsDashboard() {
+    // Check if parent has section-related classes
+    let parent = this.parentElement;
+    while (parent) {
+      if (parent.tagName === 'HUI-SECTION' || 
+          parent.classList?.contains('section') ||
+          parent.getAttribute('type') === 'sections') {
+        return true;
+      }
+      parent = parent.parentElement;
+    }
+    return false;
+  }
+  
   setConfig(config) {
     this.config = {
       cache_hours: config.cache_hours || 2,
@@ -154,6 +169,9 @@ class LeafletBomRadarCard extends HTMLElement {
 
   render() {
     if (!this.content) {
+      // Calculate appropriate height
+      const mapHeight = this.isInSectionsDashboard ? '400px' : '500px';
+      
       this.innerHTML = `
         <ha-card>
           <div class="card-header">
@@ -161,7 +179,7 @@ class LeafletBomRadarCard extends HTMLElement {
             <div class="radar-info" id="radar-info">Loading...</div>
           </div>
           <div class="card-content">
-            <div id="map-container">
+            <div id="map-container" style="height: ${mapHeight}">
               <div id="radar-map"></div>
               ${this.config.show_legend ? this.renderLegend() : ''}
               <div id="loading-overlay" class="loading-overlay" style="display: none;">
@@ -169,24 +187,13 @@ class LeafletBomRadarCard extends HTMLElement {
                 <div class="loading-text">Loading radar data...</div>
               </div>
             </div>
-            <div class="controls-container">
-              ${this.renderControls()}
-            </div>
-            <div class="status-bar">
-              <span id="timestamp-display">Initializing...</span>
-              <span id="status-info"></span>
-            </div>
+            <!-- rest of content -->
           </div>
-          <div id="error-message" class="error-message" style="display: none;"></div>
         </ha-card>
-        <style>
-          ${this.getStyles()}
-        </style>
       `;
-      this.content = this.querySelector('.card-content');
     }
   }
-
+  
   renderLegend() {
     return `
       <div class="radar-legend">
@@ -1144,7 +1151,25 @@ class LeafletBomRadarCard extends HTMLElement {
   getCardSize() {
     return 6;
   }
-
+  
+  // ADD THESE NEW METHODS:
+  getLayoutOptions() {
+    return {
+      grid_columns: 4,
+      grid_min_columns: 2,
+      grid_max_columns: 4,
+      grid_min_rows: 4,
+      grid_max_rows: 8
+    };
+  }
+  
+  static get properties() {
+    return {
+      hass: {},
+      config: {}
+    };
+  }
+  
   static getConfigElement() {
     return document.createElement("leaflet-bom-radar-card-editor");
   }
@@ -1172,7 +1197,12 @@ window.customCards.push({
   description: 'Dynamic multi-radar display with viewport-based loading and resolution support',
   preview: false,
   documentationURL: 'https://github.com/safepay/leaflet-bom-radar-card',
-});
+  configurable: true,
+  layout: {
+    height: 'fixed',
+    min_height: 4,
+    default_height: 6
+  });
 
 console.info(
   '%c LEAFLET-BOM-RADAR-CARD %c Version 2.0.0 ',
