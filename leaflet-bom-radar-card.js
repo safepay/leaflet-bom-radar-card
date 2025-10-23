@@ -789,14 +789,15 @@ class LeafletBomRadarCard extends HTMLElement {
         position: relative;
         width: 100%;
         flex: 1;
-        min-height: 400px;
+        min-height: 450px;
+        overflow: hidden;
       }
       #radar-map {
         height: 100%;
         width: 100%;
         background: #a0d6f5;
-      }
-      
+        position: relative;
+      }      
       /* FIX TILE BORDERS */
       .leaflet-container {
         background: #a0d6f5 !important;
@@ -1062,44 +1063,64 @@ class LeafletBomRadarCard extends HTMLElement {
     const latitude = this._hass.config.latitude || -37.8136;
     const longitude = this._hass.config.longitude || 144.9631;
     
-    this.map = L.map(this.querySelector('#radar-map'), {
+    const mapElement = this.querySelector('#radar-map');
+    
+    // Remove any existing map instance
+    if (this.map) {
+      this.map.remove();
+      this.map = null;
+    }
+    
+    // Create map with corrected options
+    this.map = L.map(mapElement, {
+      center: [latitude, longitude],
+      zoom: this.config.default_zoom,
       zoomControl: false,
       attributionControl: true,
       fadeAnimation: true,
       zoomAnimation: true,
       markerZoomAnimation: true,
-      preferCanvas: false,
-      renderer: L.canvas({ padding: 0.5 }),
-      zoomSnap: 1,
-      zoomDelta: 1,
-      trackResize: true,
-      worldCopyJump: false,
-      closePopupOnClick: true,
-      boxZoom: true,
-      doubleClickZoom: true,
-      dragging: true,
-      zoomAnimationThreshold: 4
-    }).setView([latitude, longitude], this.config.default_zoom);
+      minZoom: 5,
+      maxZoom: 15,
+      maxBounds: [[-45, 110], [-10, 155]], // Restrict to Australia
+      maxBoundsViscosity: 0.5
+    });
     
+    // Add zoom control in top right
     L.control.zoom({
       position: 'topright'
     }).addTo(this.map);
     
     this.map.attributionControl.setPrefix('Leaflet');
     
+    // Add base layer
     this.addBaseLayer();
+    
+    // Add home marker
     this.addHomeMarker(latitude, longitude);
+    
+    // Setup event listeners
     this.setupEventListeners();
     
+    // Map viewport change handler
     this.map.on('moveend zoomend', () => {
       this.onViewportChange();
     });
     
+    // Force map to recalculate size after a short delay
     setTimeout(() => {
       this.map.invalidateSize();
+      console.log('BoM Radar Card: Map invalidated and resized');
     }, 100);
+    
+    // Also invalidate on window resize
+    window.addEventListener('resize', () => {
+      if (this.map) {
+        this.map.invalidateSize();
+      }
+    });
   }
-
+  
   async loadLeaflet() {
     if (window.L) return;
     
@@ -1122,33 +1143,24 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   addBaseLayer() {
-    const tileLayerOptions = {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
-      minZoom: 5,
-      // ADD THESE OPTIONS
-      tileSize: 256,
-      zoomOffset: 0,
-      detectRetina: false,
-      crossOrigin: true,
-      // Prevent tile gaps
-      keepBuffer: 2,
-      updateWhenIdle: false,
-      updateWhenZooming: false,
-      updateInterval: 200
-    };
-    
     if (this.config.base_layer === 'google') {
-      L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
-        ...tileLayerOptions,
+      L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
         attribution: '© Google Maps',
-        maxZoom: 20
+        maxZoom: 20,
+        minZoom: 5,
+        subdomains: ['0', '1', '2', '3'],
+        errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
       }).addTo(this.map);
     } else {
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', tileLayerOptions).addTo(this.map);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
+        minZoom: 5,
+        errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+      }).addTo(this.map);
     }
   }
-
+  
   addHomeMarker(lat, lon) {
     const homeIcon = L.divIcon({
       html: '<div style="font-size: 24px;">🏠</div>',
