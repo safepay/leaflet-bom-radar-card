@@ -350,7 +350,7 @@ class LeafletBomRadarCard extends HTMLElement {
     this.radarLocations = null;
     this.lastTimestampFetch = new Map();
     this.MIN_FETCH_INTERVAL = 600000;
-    this.ingressUrl = null;
+    this.ingressUrl = 'http://homeassistant.local:3000';
     this.updateViewportDebounce = null;
     this.currentResolution = null;
     this.isInSectionsDashboard = false;
