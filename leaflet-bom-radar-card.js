@@ -470,31 +470,31 @@ class LeafletBomRadarCard extends HTMLElement {
     throw new Error('Could not detect working ingress URL. Ensure add-on is running and accessible.');
   }
 
-  async getIngressFromAPI() {
-    if (!this._hass || !this._hass.callWS) {
-      throw new Error('Home Assistant connection not available');
-    }
-    
-    try {
-      // Use WebSocket API instead of REST API to avoid auth issues
-      const result = await this._hass.callWS({
-        type: 'supervisor/api',
-        endpoint: '/ingress/session',
-        method: 'post',
-        data: {
-          addon: 'local_bom_radar_proxy'
-        }
-      });
-      
-      if (result && result.data && result.data.session) {
-        return `/api/hassio_ingress/${result.data.session}`;
-      }
-    } catch (error) {
-      console.warn('BoM Radar Card: WS API ingress detection failed:', error.message);
-    }
-    
-    throw new Error('API ingress detection failed');
-  }
+//  async getIngressFromAPI() {
+//    if (!this._hass || !this._hass.callWS) {
+//      throw new Error('Home Assistant connection not available');
+//    }
+//    
+//    try {
+//      // Use WebSocket API instead of REST API to avoid auth issues
+//      const result = await this._hass.callWS({
+//        type: 'supervisor/api',
+//        endpoint: '/ingress/session',
+//        method: 'post',
+//        data: {
+//          addon: 'local_bom_radar_proxy'
+//        }
+//      });
+//      
+//      if (result && result.data && result.data.session) {
+//        return `/api/hassio_ingress/${result.data.session}`;
+//      }
+//    } catch (error) {
+//      console.warn('BoM Radar Card: WS API ingress detection failed:', error.message);
+//    }
+//    
+//    throw new Error('API ingress detection failed');
+//  }
 
   detectIngressFromPath() {
     const path = window.location.pathname;
