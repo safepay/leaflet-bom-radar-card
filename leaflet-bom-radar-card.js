@@ -1171,9 +1171,13 @@ class LeafletBomRadarCard extends HTMLElement {
   }
   
   static getConfigElement() {
+    // Make sure editor is registered
+    if (!customElements.get('leaflet-bom-radar-card-editor')) {
+      console.warn('Editor not registered yet, may need to load it');
+    }
     return document.createElement("leaflet-bom-radar-card-editor");
   }
-
+  
   static getStubConfig() {
     return {
       cache_hours: 2,
