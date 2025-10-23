@@ -679,14 +679,14 @@ class LeafletBomRadarCard extends HTMLElement {
       const mapHeight = this.isInSectionsDashboard ? '450px' : '500px';
       
       this.innerHTML = `
-        <ha-card>
+        <ha-card style="height: auto;">
           <div class="card-header">
             <div class="name">Australian Weather Radar</div>
             <div class="radar-info" id="radar-info">Loading...</div>
           </div>
           <div class="card-content">
-            <div id="map-container">
-              <div id="radar-map" style="height: ${mapHeight}"></div>
+            <div id="map-container" style="height: ${mapHeight};">
+              <div id="radar-map" style="height: 100%; width: 100%;"></div>
               ${this.config.show_legend ? this.renderLegend() : ''}
               <div id="loading-overlay" class="loading-overlay" style="display: none;">
                 <div class="loading-spinner"></div>
@@ -710,7 +710,7 @@ class LeafletBomRadarCard extends HTMLElement {
       this.content = this.querySelector('.card-content');
     }
   }
-
+  
   renderLegend() {
     return `
       <div class="radar-legend">
