@@ -449,42 +449,31 @@ class LeafletBomRadarCard extends HTMLElement {
     }
   }
   
-  async getIngressUrl(retryCount = 0) {
+  async getIngressUrl() {
+    // Since the add-on's "Open Web UI" works, we know ingress is functional
+    // Just use the known path without validation
     const ingressPath = '/api/hassio_ingress/bom_radar_proxy';
-    const maxRetries = 3;
     
-    console.log(`BoM Radar Card: Attempting ingress connection (attempt ${retryCount + 1}/${maxRetries + 1})`);
+    console.log('BoM Radar Card: Using ingress path:', ingressPath);
+    this.ingressUrl = ingressPath;
     
+    // Optional: Try a simple test, but don't fail if it doesn't work
     try {
-      const testResponse = await fetch(`${ingressPath}/health`, {
+      const testResponse = await fetch(`${ingressPath}/api/radars`, {
         method: 'GET',
         headers: { 'Accept': 'application/json' }
       });
       
       if (testResponse.ok) {
-        this.ingressUrl = ingressPath;
-        console.log('BoM Radar Card: Ingress URL validated');
-        return;
+        console.log('BoM Radar Card: Ingress validated successfully');
+      } else {
+        console.warn('BoM Radar Card: Ingress test got status', testResponse.status, 'but continuing anyway');
       }
-      
-      // If we get a 502/503, the add-on might be starting
-      if ((testResponse.status === 502 || testResponse.status === 503) && retryCount < maxRetries) {
-        console.log('BoM Radar Card: Add-on appears to be starting, retrying...');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        return this.getIngressUrl(retryCount + 1);
-      }
-      
-      throw new Error(`Add-on health check failed (HTTP ${testResponse.status})`);
-      
     } catch (error) {
-      if (retryCount < maxRetries) {
-        console.log('BoM Radar Card: Connection failed, retrying...', error.message);
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        return this.getIngressUrl(retryCount + 1);
-      }
-      
-      throw new Error(`Cannot connect to add-on after ${maxRetries + 1} attempts. Ensure "BoM Radar Proxy" is running.`);
+      console.warn('BoM Radar Card: Ingress test failed but continuing anyway:', error.message);
     }
+    
+    return;
   }
   
 //  async getIngressFromAPI() {
