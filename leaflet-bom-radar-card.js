@@ -1,5 +1,5 @@
 // leaflet-bom-radar-card.js
-// Version 2.0.1 - WITH FIXES: Editor auto-loading + Sections support
+// Version 2.1.0 - Complete Fix: Sections + Ingress + Editor
 // Dynamic Multi-Radar Support with Resolution
 
 class LeafletBomRadarCard extends HTMLElement {
@@ -20,31 +20,28 @@ class LeafletBomRadarCard extends HTMLElement {
     this.ingressUrl = null;
     this.updateViewportDebounce = null;
     this.currentResolution = null;
-    
-    // ADDED: Detect if we're in a sections dashboard
     this.isInSectionsDashboard = false;
+    this.initializationAttempts = 0;
+    this.maxInitAttempts = 3;
   }
 
-  // ADDED: Lifecycle callback to detect sections
   connectedCallback() {
-    super.connectedCallback?.();
     this.isInSectionsDashboard = this._detectSectionsDashboard();
-    
-    if (this.isInSectionsDashboard) {
-      console.log('BoM Radar Card: Detected Sections dashboard layout');
-    }
+    console.log(`BoM Radar Card: Dashboard type: ${this.isInSectionsDashboard ? 'Sections' : 'Standard'}`);
   }
 
-  // ADDED: Helper to detect sections dashboard
   _detectSectionsDashboard() {
     let parent = this.parentElement;
     let depth = 0;
-    const maxDepth = 10;
+    const maxDepth = 15;
     
     while (parent && depth < maxDepth) {
-      if (parent.tagName === 'HUI-SECTION' || 
-          parent.classList?.contains('section') ||
-          parent.classList?.contains('sections') ||
+      const tagName = parent.tagName?.toLowerCase();
+      const classList = Array.from(parent.classList || []);
+      
+      if (tagName === 'hui-section' || 
+          tagName === 'hui-card' && classList.includes('section') ||
+          classList.includes('sections') ||
           parent.getAttribute('type') === 'sections') {
         return true;
       }
@@ -65,6 +62,8 @@ class LeafletBomRadarCard extends HTMLElement {
       fade_duration: config.fade_duration || 300,
       max_radar_distance_km: config.max_radar_distance_km || 800,
     };
+    
+    console.log('BoM Radar Card: Config set', this.config);
   }
 
   set hass(hass) {
@@ -72,57 +71,90 @@ class LeafletBomRadarCard extends HTMLElement {
   
     if (!this.content) {
       this.initializeWithHass().catch(err => {
-        console.error('Initialization failed:', err);
+        console.error('BoM Radar Card: Initialization failed:', err);
+        this.showError(`Initialization failed: ${err.message}`);
       });
     }
   }
   
   async initializeWithHass() {
-    await this.getIngressUrl();
-  
-    if (!this.radarLocations) {
-      await this.loadRadarData();
+    console.log('BoM Radar Card: Starting initialization...');
+    
+    try {
+      await this.getIngressUrl();
+      console.log('BoM Radar Card: Ingress URL obtained:', this.ingressUrl);
+      
+      if (!this.radarLocations) {
+        await this.loadRadarData();
+        console.log('BoM Radar Card: Radar data loaded');
+      }
+      
+      this.render();
+      console.log('BoM Radar Card: Rendered');
+      
+      await this.setupMap();
+      console.log('BoM Radar Card: Map setup complete');
+      
+      await this.initializeViewport();
+      console.log('BoM Radar Card: Viewport initialized');
+      
+    } catch (error) {
+      console.error('BoM Radar Card: Fatal initialization error:', error);
+      
+      if (this.initializationAttempts < this.maxInitAttempts) {
+        this.initializationAttempts++;
+        console.log(`BoM Radar Card: Retrying initialization (attempt ${this.initializationAttempts})...`);
+        setTimeout(() => this.initializeWithHass(), 2000);
+      } else {
+        this.showError(`Failed to initialize after ${this.maxInitAttempts} attempts. Check add-on is running.`);
+      }
     }
-  
-    this.render();
-    await this.setupMap();
-    await this.initializeViewport();
   }
   
   async getIngressUrl() {
-    try {
-      this.ingressUrl = '/api/hassio_ingress/' + await this.getIngressToken();
-      console.log('Using ingress URL:', this.ingressUrl);
-    } catch (error) {
-      console.error('Failed to get ingress URL:', error);
-      this.ingressUrl = this.detectIngressUrl();
-    }
-  }
-
-  async getIngressToken() {
-    try {
-      const response = await fetch('/api/hassio/ingress/session', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          addon: 'local_bom_radar_proxy'
-        })
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        return data.data.session;
+    // Try multiple methods to detect ingress URL
+    const methods = [
+      () => this.getIngressFromAPI(),
+      () => this.detectIngressFromPath(),
+      () => this.tryCommonIngressPaths()
+    ];
+    
+    for (const method of methods) {
+      try {
+        const url = await method();
+        if (url && await this.testIngressUrl(url)) {
+          this.ingressUrl = url;
+          console.log('BoM Radar Card: Ingress URL validated:', url);
+          return;
+        }
+      } catch (error) {
+        console.warn('BoM Radar Card: Ingress detection method failed:', error.message);
       }
-    } catch (error) {
-      console.error('Error getting ingress token:', error);
     }
     
-    return 'bom_radar_proxy';
+    throw new Error('Could not detect working ingress URL. Ensure add-on is running and accessible.');
   }
 
-  detectIngressUrl() {
+  async getIngressFromAPI() {
+    const response = await fetch('/api/hassio/ingress/session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        addon: 'local_bom_radar_proxy'
+      })
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      return `/api/hassio_ingress/${data.data.session}`;
+    }
+    
+    throw new Error('API ingress detection failed');
+  }
+
+  detectIngressFromPath() {
     const path = window.location.pathname;
     const match = path.match(/\/api\/hassio_ingress\/([^\/]+)/);
     
@@ -130,11 +162,46 @@ class LeafletBomRadarCard extends HTMLElement {
       return `/api/hassio_ingress/${match[1]}`;
     }
     
-    return '/api/hassio_ingress/bom_radar_proxy';
+    throw new Error('No ingress path in URL');
+  }
+
+  async tryCommonIngressPaths() {
+    const commonPaths = [
+      '/api/hassio_ingress/bom_radar_proxy',
+      '/api/hassio_ingress/local_bom_radar_proxy',
+      '/local/bom-radar-proxy'
+    ];
+    
+    for (const path of commonPaths) {
+      if (await this.testIngressUrl(path)) {
+        return path;
+      }
+    }
+    
+    throw new Error('No common ingress paths work');
+  }
+
+  async testIngressUrl(url) {
+    try {
+      const response = await fetch(`${url}/health`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      });
+      
+      return response.ok;
+    } catch (error) {
+      return false;
+    }
   }
 
   async apiRequest(endpoint) {
+    if (!this.ingressUrl) {
+      throw new Error('Ingress URL not initialized');
+    }
+    
     const url = `${this.ingressUrl}${endpoint}`;
+    console.log('BoM Radar Card: API request:', url);
+    
     const response = await fetch(url, {
       headers: {
         'Accept': 'application/json',
@@ -166,29 +233,17 @@ class LeafletBomRadarCard extends HTMLElement {
         };
       });
       
-      console.log(`Loaded ${Object.keys(this.radarLocations).length} radar locations`);
+      console.log(`BoM Radar Card: Loaded ${Object.keys(this.radarLocations).length} radar locations`);
     } catch (error) {
-      console.error('Failed to load radar data:', error);
-      this.showError('Failed to load radar locations. Check add-on is running.');
-      
-      // Fallback
-      this.radarLocations = {
-        'IDR022': { 
-          id: 'IDR022',
-          name: 'Melbourne', 
-          lat: -37.855222, 
-          lon: 144.755417, 
-          state: 'VIC', 
-          type: 'High-resolution Doppler' 
-        }
-      };
+      console.error('BoM Radar Card: Failed to load radar data:', error);
+      throw new Error(`Failed to load radar locations: ${error.message}`);
     }
   }
 
   render() {
     if (!this.content) {
-      // UPDATED: Calculate height based on dashboard type
-      const mapHeight = this.isInSectionsDashboard ? '400px' : '500px';
+      // Dynamic height based on dashboard type
+      const mapHeight = this.isInSectionsDashboard ? '450px' : '500px';
       
       this.innerHTML = `
         <ha-card>
@@ -273,6 +328,7 @@ class LeafletBomRadarCard extends HTMLElement {
     return `
       ha-card {
         overflow: hidden;
+        height: 100%;
       }
       .card-header {
         padding: 16px;
@@ -292,10 +348,14 @@ class LeafletBomRadarCard extends HTMLElement {
       }
       .card-content {
         padding: 0;
+        display: flex;
+        flex-direction: column;
+        height: calc(100% - 70px);
       }
       #map-container {
         position: relative;
         width: 100%;
+        flex: 1;
       }
       #radar-map {
         height: 100%;
@@ -474,6 +534,7 @@ class LeafletBomRadarCard extends HTMLElement {
         background: var(--error-color, #f44336);
         color: white;
         text-align: center;
+        font-size: 14px;
       }
       .leaflet-container {
         background: #a0d6f5 !important;
@@ -491,8 +552,8 @@ class LeafletBomRadarCard extends HTMLElement {
           flex-direction: column;
           align-items: stretch;
         }
-        #map-container {
-          height: 400px;
+        .name {
+          font-size: 20px;
         }
         .playback-controls {
           justify-content: space-between;
@@ -500,6 +561,7 @@ class LeafletBomRadarCard extends HTMLElement {
         .control-btn {
           flex: 1;
           min-width: auto;
+          padding: 8px 12px;
         }
         .zoom-controls {
           justify-content: space-between;
@@ -545,6 +607,11 @@ class LeafletBomRadarCard extends HTMLElement {
     this.map.on('moveend zoomend', () => {
       this.onViewportChange();
     });
+    
+    // Force map to recalculate size
+    setTimeout(() => {
+      this.map.invalidateSize();
+    }, 100);
   }
 
   async loadLeaflet() {
@@ -657,7 +724,7 @@ class LeafletBomRadarCard extends HTMLElement {
       this.updateRadarInfo();
       this.showLoading(false);
     } catch (error) {
-      console.error('Failed to initialize viewport:', error);
+      console.error('BoM Radar Card: Failed to initialize viewport:', error);
       this.showError('Failed to load radar data: ' + error.message);
       this.showLoading(false);
     }
@@ -682,12 +749,12 @@ class LeafletBomRadarCard extends HTMLElement {
     
     if (radarsChanged || resolutionChanged) {
       if (resolutionChanged) {
-        console.log(`Resolution changed from ${previousResolution}km to ${newResolution}km`);
+        console.log(`BoM Radar Card: Resolution changed from ${previousResolution}km to ${newResolution}km`);
         this.currentResolution = newResolution;
       }
       
       if (radarsChanged) {
-        console.log(`Visible radars changed. Now showing: ${Array.from(this.visibleRadars).join(', ')}`);
+        console.log(`BoM Radar Card: Visible radars changed. Now showing: ${Array.from(this.visibleRadars).join(', ')}`);
       }
       
       await this.loadTimestampsForVisibleRadars();
@@ -723,7 +790,7 @@ class LeafletBomRadarCard extends HTMLElement {
       }
     }
     
-    console.log(`Found ${this.visibleRadars.size} visible radars:`, Array.from(this.visibleRadars));
+    console.log(`BoM Radar Card: Found ${this.visibleRadars.size} visible radars:`, Array.from(this.visibleRadars));
   }
 
   isRadarCoverageVisible(radar, bounds) {
@@ -772,9 +839,9 @@ class LeafletBomRadarCard extends HTMLElement {
       this.radarTimestamps.set(radarId, data.timestamps || []);
       this.lastTimestampFetch.set(radarId, Date.now());
       
-      console.log(`Fetched ${data.timestamps.length} timestamps for ${radarId} at ${resolution}km`);
+      console.log(`BoM Radar Card: Fetched ${data.timestamps.length} timestamps for ${radarId} at ${resolution}km`);
     } catch (error) {
-      console.error(`Failed to fetch timestamps for ${radarId}:`, error);
+      console.error(`BoM Radar Card: Failed to fetch timestamps for ${radarId}:`, error);
       this.radarTimestamps.set(radarId, []);
     }
   }
@@ -789,7 +856,7 @@ class LeafletBomRadarCard extends HTMLElement {
     
     this.allTimestamps = Array.from(timestampSet).sort();
     
-    console.log(`Built timeline with ${this.allTimestamps.length} unique timestamps`);
+    console.log(`BoM Radar Card: Built timeline with ${this.allTimestamps.length} unique timestamps`);
   }
 
   async displayCurrentFrame() {
@@ -1031,7 +1098,7 @@ class LeafletBomRadarCard extends HTMLElement {
       
       this.updateStatusDisplay('Radar data refreshed');
     } catch (error) {
-      console.error('Failed to refresh:', error);
+      console.error('BoM Radar Card: Failed to refresh:', error);
       this.showError('Failed to refresh: ' + error.message);
     } finally {
       this.showLoading(false);
@@ -1094,6 +1161,7 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   showError(message) {
+    console.error('BoM Radar Card: Showing error:', message);
     const errorEl = this.querySelector('#error-message');
     if (errorEl) {
       errorEl.textContent = message;
@@ -1101,7 +1169,7 @@ class LeafletBomRadarCard extends HTMLElement {
       
       setTimeout(() => {
         errorEl.style.display = 'none';
-      }, 5000);
+      }, 10000);
     }
   }
 
@@ -1114,21 +1182,19 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   getCardSize() {
-    return 6;
+    return this.isInSectionsDashboard ? 4 : 6;
   }
 
-  // ADDED: Layout options for Sections dashboard support
   getLayoutOptions() {
     return {
       grid_columns: 4,
       grid_min_columns: 2,
       grid_max_columns: 4,
       grid_min_rows: 4,
-      grid_max_rows: 8
+      grid_max_rows: 6
     };
   }
 
-  // ADDED: Properties definition for Sections
   static get properties() {
     return {
       hass: {},
@@ -1136,37 +1202,8 @@ class LeafletBomRadarCard extends HTMLElement {
     };
   }
 
-  // UPDATED: Enhanced getConfigElement with better error handling
   static getConfigElement() {
-    if (!customElements.get('leaflet-bom-radar-card-editor')) {
-      console.warn('BoM Radar Card: Editor custom element not registered yet');
-      console.warn('Make sure leaflet-bom-radar-card-editor.js is loaded');
-      
-      const placeholder = document.createElement('div');
-      placeholder.innerHTML = `
-        <div style="padding: 20px; text-align: center; color: var(--primary-text-color);">
-          <p>⚠️ Card editor is loading...</p>
-          <p style="font-size: 12px; color: var(--secondary-text-color);">
-            If this message persists, check that leaflet-bom-radar-card-editor.js is loaded.
-          </p>
-        </div>
-      `;
-      
-      setTimeout(() => {
-        if (customElements.get('leaflet-bom-radar-card-editor')) {
-          console.log('Editor now available, please close and reopen the card config');
-        }
-      }, 1000);
-      
-      return placeholder;
-    }
-    
     return document.createElement("leaflet-bom-radar-card-editor");
-  }
-
-  // ADDED: Check if editor is available
-  static get editorAvailable() {
-    return customElements.get('leaflet-bom-radar-card-editor') !== undefined;
   }
 
   static getStubConfig() {
@@ -1185,7 +1222,6 @@ class LeafletBomRadarCard extends HTMLElement {
 
 customElements.define('leaflet-bom-radar-card', LeafletBomRadarCard);
 
-// UPDATED: Register with Sections support
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'leaflet-bom-radar-card',
@@ -1193,58 +1229,11 @@ window.customCards.push({
   description: 'Dynamic multi-radar display with viewport-based loading and resolution support',
   preview: false,
   documentationURL: 'https://github.com/safepay/leaflet-bom-radar-card',
-  configurable: true,
-  layout: {
-    height: 'fixed',
-    min_height: 4,
-    default_height: 6
-  }
+  configurable: true
 });
 
-// ADDED: Auto-load the editor
-(function loadEditor() {
-  if (customElements.get('leaflet-bom-radar-card-editor')) {
-    console.log('%c BoM Radar Card: Editor already loaded', 
-                'color: green; font-weight: bold');
-    return;
-  }
-  
-  const currentScript = document.currentScript || 
-                       Array.from(document.querySelectorAll('script'))
-                            .find(s => s.src && s.src.includes('leaflet-bom-radar-card.js'));
-  
-  if (currentScript && currentScript.src) {
-    const scriptPath = currentScript.src;
-    const editorPath = scriptPath.replace('leaflet-bom-radar-card.js', 
-                                          'leaflet-bom-radar-card-editor.js');
-    
-    console.log('%c BoM Radar Card: Loading editor from ' + editorPath,
-                'color: blue; font-weight: bold');
-    
-    const editorScript = document.createElement('script');
-    editorScript.src = editorPath;
-    editorScript.type = 'module';
-    
-    editorScript.onerror = () => {
-      console.error('%c BoM Radar Card: Failed to load editor from ' + editorPath,
-                    'color: red; font-weight: bold');
-      console.error('Make sure leaflet-bom-radar-card-editor.js is in the same directory');
-    };
-    
-    editorScript.onload = () => {
-      console.log('%c BoM Radar Card: Editor loaded successfully!',
-                  'color: green; font-weight: bold');
-    };
-    
-    document.head.appendChild(editorScript);
-  } else {
-    console.warn('BoM Radar Card: Could not determine script path for editor auto-loading');
-    console.warn('You may need to manually add leaflet-bom-radar-card-editor.js as a resource');
-  }
-})();
-
 console.info(
-  '%c LEAFLET-BOM-RADAR-CARD %c Version 2.0.1 - With Fixes ',
+  '%c LEAFLET-BOM-RADAR-CARD %c Version 2.1.0 - Complete Fix ',
   'color: orange; font-weight: bold; background: black',
   'color: white; font-weight: bold; background: dimgray'
 );
