@@ -539,19 +539,13 @@ class LeafletBomRadarCard extends HTMLElement {
         headers: { 
           'Accept': 'application/json'
         },
-        // CRITICAL: Don't set credentials, let HA handle it
-        // The ingress proxy automatically includes auth
+        credentials: 'include'  // ADD THIS
       });
       
       console.log('BoM Radar Card: Response status:', response.status);
       
       if (response.ok) {
         return true;
-      }
-      
-      // Log more details for debugging
-      if (response.status === 401 || response.status === 403) {
-        console.error('BoM Radar Card: Authentication failed for ingress');
       }
       
       return false;
@@ -573,7 +567,9 @@ class LeafletBomRadarCard extends HTMLElement {
       const response = await fetch(url, {
         headers: {
           'Accept': 'application/json',
-        }
+        },
+        // CRITICAL: This ensures the request includes HA session cookies
+        credentials: 'include'
       });
       
       if (!response.ok) {
