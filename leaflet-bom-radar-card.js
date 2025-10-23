@@ -33,7 +33,7 @@ class LeafletBomRadarCard extends HTMLElement {
     };
   }
 
-  async set hass(hass) {
+  set hass(hass) {
     this._hass = hass;
     
     if (!this.content) {
