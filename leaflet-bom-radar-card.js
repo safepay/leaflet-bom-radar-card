@@ -789,11 +789,46 @@ class LeafletBomRadarCard extends HTMLElement {
         position: relative;
         width: 100%;
         flex: 1;
+        min-height: 400px;
       }
       #radar-map {
         height: 100%;
         width: 100%;
+        background: #a0d6f5;
       }
+      
+      /* FIX TILE BORDERS */
+      .leaflet-container {
+        background: #a0d6f5 !important;
+        font-family: inherit;
+      }
+      .leaflet-tile-container {
+        pointer-events: none;
+      }
+      .leaflet-tile {
+        border: none !important;
+        outline: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        display: block !important;
+        /* Fix for tile gaps */
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: crisp-edges;
+        image-rendering: pixelated;
+      }
+      .leaflet-layer,
+      .leaflet-tile-pane {
+        /* Prevent gaps between tiles */
+        transform: translate3d(0, 0, 0);
+        backface-visibility: hidden;
+      }
+      
+      /* Smooth radar overlays */
+      .radar-overlay {
+        image-rendering: auto !important;
+        mix-blend-mode: multiply;
+      }
+      
       .loading-overlay {
         position: absolute;
         top: 0;
@@ -826,7 +861,7 @@ class LeafletBomRadarCard extends HTMLElement {
       }
       .radar-legend {
         position: absolute;
-        bottom: 40px;
+        bottom: 50px;
         right: 10px;
         background: rgba(255, 255, 255, 0.95);
         padding: 12px;
@@ -861,6 +896,8 @@ class LeafletBomRadarCard extends HTMLElement {
         padding: 16px;
         background: var(--card-background-color);
         border-top: 1px solid var(--divider-color);
+        z-index: 10;
+        position: relative;
       }
       .radar-controls {
         display: flex;
@@ -969,15 +1006,21 @@ class LeafletBomRadarCard extends HTMLElement {
         text-align: center;
         font-size: 14px;
       }
-      .leaflet-container {
-        background: #a0d6f5 !important;
-        font-family: inherit;
-      }
       .leaflet-fade-anim .leaflet-popup {
         transition: opacity ${this.config.fade_duration}ms;
       }
       .leaflet-zoom-anim .leaflet-zoom-animated {
         transition: transform 0.25s cubic-bezier(0,0,0.25,1);
+      }
+      
+      /* Fix Leaflet control positioning */
+      .leaflet-top,
+      .leaflet-bottom {
+        z-index: 1000;
+      }
+      .leaflet-control-zoom {
+        margin-right: 10px !important;
+        margin-top: 10px !important;
       }
       
       @media (max-width: 600px) {
@@ -1002,7 +1045,7 @@ class LeafletBomRadarCard extends HTMLElement {
         .radar-legend {
           font-size: 10px;
           padding: 8px;
-          bottom: 30px;
+          bottom: 40px;
           right: 5px;
         }
         .legend-color {
@@ -1012,7 +1055,7 @@ class LeafletBomRadarCard extends HTMLElement {
       }
     `;
   }
-
+  
   async setupMap() {
     await this.loadLeaflet();
     
@@ -1024,7 +1067,18 @@ class LeafletBomRadarCard extends HTMLElement {
       attributionControl: true,
       fadeAnimation: true,
       zoomAnimation: true,
-      markerZoomAnimation: true
+      markerZoomAnimation: true,
+      preferCanvas: false,
+      renderer: L.canvas({ padding: 0.5 }),
+      zoomSnap: 1,
+      zoomDelta: 1,
+      trackResize: true,
+      worldCopyJump: false,
+      closePopupOnClick: true,
+      boxZoom: true,
+      doubleClickZoom: true,
+      dragging: true,
+      zoomAnimationThreshold: 4
     }).setView([latitude, longitude], this.config.default_zoom);
     
     L.control.zoom({
@@ -1068,16 +1122,30 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   addBaseLayer() {
+    const tileLayerOptions = {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+      minZoom: 5,
+      // ADD THESE OPTIONS
+      tileSize: 256,
+      zoomOffset: 0,
+      detectRetina: false,
+      crossOrigin: true,
+      // Prevent tile gaps
+      keepBuffer: 2,
+      updateWhenIdle: false,
+      updateWhenZooming: false,
+      updateInterval: 200
+    };
+    
     if (this.config.base_layer === 'google') {
       L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        ...tileLayerOptions,
         attribution: '© Google Maps',
         maxZoom: 20
       }).addTo(this.map);
     } else {
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19
-      }).addTo(this.map);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', tileLayerOptions).addTo(this.map);
     }
   }
 
