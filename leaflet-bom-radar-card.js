@@ -449,27 +449,44 @@ class LeafletBomRadarCard extends HTMLElement {
     }
   }
   
-  async getIngressUrl() {
-    // For add-ons, the ingress path follows a predictable pattern
-    // The slug from config.yaml is: bom_radar_proxy
-    const possiblePaths = [
-      '/api/hassio_ingress/bom_radar_proxy',
-      // Fallback for local development
-      '/api/hassio_ingress/local_bom_radar_proxy'
-    ];
+  async getIngressUrl(retryCount = 0) {
+    const ingressPath = '/api/hassio_ingress/bom_radar_proxy';
+    const maxRetries = 3;
     
-    for (const path of possiblePaths) {
-      console.log('BoM Radar Card: Testing ingress path:', path);
-      if (await this.testIngressUrl(path)) {
-        this.ingressUrl = path;
-        console.log('BoM Radar Card: Ingress URL validated:', path);
+    console.log(`BoM Radar Card: Attempting ingress connection (attempt ${retryCount + 1}/${maxRetries + 1})`);
+    
+    try {
+      const testResponse = await fetch(`${ingressPath}/health`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      });
+      
+      if (testResponse.ok) {
+        this.ingressUrl = ingressPath;
+        console.log('BoM Radar Card: Ingress URL validated');
         return;
       }
+      
+      // If we get a 502/503, the add-on might be starting
+      if ((testResponse.status === 502 || testResponse.status === 503) && retryCount < maxRetries) {
+        console.log('BoM Radar Card: Add-on appears to be starting, retrying...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return this.getIngressUrl(retryCount + 1);
+      }
+      
+      throw new Error(`Add-on health check failed (HTTP ${testResponse.status})`);
+      
+    } catch (error) {
+      if (retryCount < maxRetries) {
+        console.log('BoM Radar Card: Connection failed, retrying...', error.message);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return this.getIngressUrl(retryCount + 1);
+      }
+      
+      throw new Error(`Cannot connect to add-on after ${maxRetries + 1} attempts. Ensure "BoM Radar Proxy" is running.`);
     }
-    
-    throw new Error('Could not detect working ingress URL. Ensure add-on is running and accessible.');
   }
-
+  
 //  async getIngressFromAPI() {
 //    if (!this._hass || !this._hass.callWS) {
 //      throw new Error('Home Assistant connection not available');
@@ -533,16 +550,19 @@ class LeafletBomRadarCard extends HTMLElement {
         headers: { 
           'Accept': 'application/json'
         },
-        // Add credentials for ingress
-        credentials: 'same-origin'
+        // CRITICAL: Don't set credentials, let HA handle it
+        // The ingress proxy automatically includes auth
       });
       
       console.log('BoM Radar Card: Response status:', response.status);
       
       if (response.ok) {
-        const data = await response.json();
-        console.log('BoM Radar Card: Health check response:', data);
         return true;
+      }
+      
+      // Log more details for debugging
+      if (response.status === 401 || response.status === 403) {
+        console.error('BoM Radar Card: Authentication failed for ingress');
       }
       
       return false;
@@ -560,19 +580,37 @@ class LeafletBomRadarCard extends HTMLElement {
     const url = `${this.ingressUrl}${endpoint}`;
     console.log('BoM Radar Card: API request:', url);
     
-    const response = await fetch(url, {
-      headers: {
-        'Accept': 'application/json',
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        // Get more details about the error
+        const contentType = response.headers.get('content-type');
+        let errorDetail = `HTTP ${response.status}: ${response.statusText}`;
+        
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          errorDetail += ` - ${JSON.stringify(errorData)}`;
+        } else {
+          const errorText = await response.text();
+          errorDetail += ` - ${errorText.substring(0, 200)}`;
+        }
+        
+        console.error('BoM Radar Card: API request failed:', errorDetail);
+        throw new Error(errorDetail);
       }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      
+      return response;
+    } catch (error) {
+      console.error('BoM Radar Card: API request exception:', error);
+      throw error;
     }
-    
-    return response;
   }
-
+  
   async loadRadarData() {
     try {
       const response = await this.apiRequest('/api/radars');
