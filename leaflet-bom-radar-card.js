@@ -35,18 +35,24 @@ class LeafletBomRadarCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    
+  
     if (!this.content) {
-      await this.getIngressUrl();
-      
-      if (!this.radarLocations) {
-        await this.loadRadarData();
-      }
-      
-      this.render();
-      await this.setupMap();
-      await this.initializeViewport();
+      this.initializeWithHass().catch(err => {
+        console.error('Initialization failed:', err);
+      });
     }
+  }
+  
+  async initializeWithHass() {
+    await this.getIngressUrl();
+  
+    if (!this.radarLocations) {
+      await this.loadRadarData();
+    }
+  
+    this.render();
+    await this.setupMap();
+    await this.initializeViewport();
   }
 
   async getIngressUrl() {
