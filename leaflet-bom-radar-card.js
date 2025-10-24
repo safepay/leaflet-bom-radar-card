@@ -386,14 +386,14 @@ class LeafletBomRadarCard extends HTMLElement {
 
   setConfig(config) {
     this.config = {
-      cache_hours: config.cache_hours || 2,
+      cache_hours: config.cache_hours || 1,
       playback_speed: config.playback_speed || 500,
-      default_zoom: config.default_zoom || 8,
+      default_zoom: config.default_zoom || 9,
       opacity: config.opacity || 0.7,
       base_layer: config.base_layer || 'osm',
       show_legend: config.show_legend !== false,
       fade_duration: config.fade_duration || 300,
-      max_radar_distance_km: config.max_radar_distance_km || 800,
+      max_radar_distance_km: config.max_radar_distance_km || 300,
     };
     
     // Handle layout_options for sections
