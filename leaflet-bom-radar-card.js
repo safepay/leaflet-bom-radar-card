@@ -1102,9 +1102,9 @@ class LeafletBomRadarCard extends HTMLElement {
     this.setupEventListeners();
     
     // Map viewport change handler
-    this.map.on('moveend zoomend', () => {
-      this.onViewportChange();
-    });
+    // this.map.on('moveend zoomend', () => {
+    //   this.onViewportChange();
+    // });
     
     // Force map to recalculate size after a short delay
     setTimeout(() => {
@@ -1367,7 +1367,7 @@ class LeafletBomRadarCard extends HTMLElement {
       const zoom = this.map.getZoom();
       const resolution = this.getResolutionForZoom(zoom);
       
-      const limit = Math.ceil((this.config.cache_hours * 60) / 10);
+      const limit = 5; // Always fetch last 5 images (50 minutes)
       
       // Add timeout
       const controller = new AbortController();
