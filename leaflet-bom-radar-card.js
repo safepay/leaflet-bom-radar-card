@@ -451,58 +451,54 @@ class LeafletBomRadarCard extends HTMLElement {
   
 
   async getIngressUrl() {
-    console.log('BoM Radar Card: Connecting to add-on via exposed port...');
+    console.log('BoM Radar Card: Initializing connection...');
     
-    // Dashboard cards CANNOT use ingress (only works in add-on panel)
-    // Instead, use the exposed port from config.yaml: ports: 3000/tcp: 3000
+    // Dashboard cards must use the exposed port (3000), not ingress
+    // Ingress only works within the add-on panel context
     
-    const possibleUrls = [
-      `http://${window.location.hostname}:3000`,  // Use HA hostname
-      'http://homeassistant.local:3000',          // Default HA hostname
-      'http://homeassistant:3000',                 // Docker internal
-    ];
+    // Build URL using the Home Assistant hostname
+    const hostname = window.location.hostname;
+    const url = `http://${hostname}:3000`;
     
-    for (const url of possibleUrls) {
-      try {
-        console.log('BoM Radar Card: Trying:', url);
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-        
-        const response = await fetch(`${url}/health`, {
-          method: 'GET',
-          headers: { 'Accept': 'application/json' },
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-          this.ingressUrl = url;
-          console.log('BoM Radar Card: Connected successfully to:', url);
-          
-          // Log the health response for debugging
-          const data = await response.json();
-          console.log('BoM Radar Card: Server status:', data.status);
-          return;
-        }
-        
-        console.log('BoM Radar Card:', url, 'returned', response.status);
-      } catch (error) {
-        if (error.name === 'AbortError') {
-          console.log('BoM Radar Card:', url, 'timed out');
-        } else {
-          console.log('BoM Radar Card:', url, 'failed:', error.message);
-        }
+    console.log('BoM Radar Card: Attempting connection to:', url);
+    
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const response = await fetch(`${url}/health`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        const data = await response.json();
+        this.ingressUrl = url;
+        console.log('BoM Radar Card: Connected successfully!');
+        console.log('BoM Radar Card: Server status:', data.status, '| Uptime:', Math.floor(data.uptime), 'seconds');
+        return;
       }
+      
+      // If we get a response but it's not OK
+      console.error('BoM Radar Card: Server responded with status:', response.status, response.statusText);
+      throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+      
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.error('BoM Radar Card: Connection timeout after 5 seconds');
+        throw new Error('Connection timeout. Ensure add-on is running and port 3000 is accessible.');
+      }
+      
+      console.error('BoM Radar Card: Connection failed:', error.message);
+      throw new Error(
+        `Could not connect to BoM Radar Proxy add-on at ${url}. ` +
+        'Ensure the add-on is running. ' +
+        'Check Settings → Add-ons → BoM Radar Proxy.'
+      );
     }
-    
-    // All attempts failed
-    throw new Error(
-      'Could not connect to BoM Radar Proxy add-on. ' +
-      'Ensure port 3000 is accessible. ' +
-      'Check Settings → Add-ons → BoM Radar Proxy is running.'
-    );
   }
   
   detectIngressFromPath() {
