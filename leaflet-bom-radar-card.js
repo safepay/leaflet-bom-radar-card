@@ -338,6 +338,7 @@ console.info(
 class LeafletBomRadarCard extends HTMLElement {
   constructor() {
     super();
+    this.displayedImages = new Map();
     this.imageCache = new Map();
     this.radarTimestamps = new Map();
     this.activeOverlays = new Map();
@@ -1457,6 +1458,13 @@ class LeafletBomRadarCard extends HTMLElement {
     const cacheKey = `${radarId}_${timestamp}_${resolution}`;
     const overlayId = `${radarId}_overlay`;
     
+    // Check if this exact image is already displayed
+    const currentKey = this.displayedImages.get(overlayId);
+    if (currentKey === cacheKey) {
+      console.log(`Radar ${radarId} already showing ${timestamp}, skipping`);
+      return; // Same image already displayed
+    }
+    
     if (!this.imageCache.has(cacheKey)) {
       const imageUrl = `${this.ingressUrl}/api/radar/${radarId}/${timestamp}/${resolution}`;
       this.imageCache.set(cacheKey, imageUrl);
@@ -1467,14 +1475,8 @@ class LeafletBomRadarCard extends HTMLElement {
     
     const bounds = this.calculateRadarBounds(radar, resolution);
     
-    // Check if we already have this exact image displayed
-    const existingOverlay = this.activeOverlays.get(overlayId);
-    if (existingOverlay && this.imageCache.get(cacheKey) === imageUrl) {
-      // Same image already displayed, don't recreate
-      return;
-    }
-    
     // Remove old overlay if exists
+    const existingOverlay = this.activeOverlays.get(overlayId);
     if (existingOverlay) {
       this.map.removeLayer(existingOverlay);
     }
@@ -1488,13 +1490,13 @@ class LeafletBomRadarCard extends HTMLElement {
     
     overlay.addTo(this.map);
     this.activeOverlays.set(overlayId, overlay);
+    this.displayedImages.set(overlayId, cacheKey); // Track what's displayed
     
     overlay.on('load', () => {
-      // Image loaded successfully
-      console.log(`Radar overlay loaded: ${radarId}`);
+      console.log(`Radar overlay loaded: ${radarId} at ${timestamp}`);
     });
   }
-
+  
   calculateRadarBounds(radar, resolution = null) {
     let radiusKm;
     
