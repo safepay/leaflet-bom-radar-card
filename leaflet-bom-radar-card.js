@@ -1483,7 +1483,7 @@ class LeafletBomRadarCard extends HTMLElement {
     }
     
     const overlay = L.imageOverlay(imageUrl, bounds, {
-      opacity: 0,
+      opacity: this.config.opacity,
       interactive: false,
       crossOrigin: 'anonymous',
       className: `radar-overlay radar-${radarId}`
