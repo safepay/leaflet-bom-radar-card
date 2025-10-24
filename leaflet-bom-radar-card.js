@@ -1208,15 +1208,11 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   getResolutionForZoom(zoom) {
-    if (zoom >= 11) {
-      return 64;
-    } else if (zoom >= 9) {
-      return 128;
-    } else {
-      return 256;
-    }
+    if (zoom >= 10) return 64;
+    if (zoom >= 9) return 128;    // ← CHANGE: 8 to 9
+    return 256;
   }
-
+  
   async initializeViewport() {
     this.showLoading(true);
     this.updateStatusDisplay('Detecting visible radars...');
