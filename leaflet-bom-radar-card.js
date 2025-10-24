@@ -1469,17 +1469,7 @@ class LeafletBomRadarCard extends HTMLElement {
     
     if (this.activeOverlays.has(overlayId)) {
       const oldOverlay = this.activeOverlays.get(overlayId);
-      
-      if (oldOverlay._image) {
-        oldOverlay._image.style.transition = `opacity ${this.config.fade_duration}ms`;
-        oldOverlay._image.style.opacity = '0';
-        
-        setTimeout(() => {
-          this.map.removeLayer(oldOverlay);
-        }, this.config.fade_duration);
-      } else {
-        this.map.removeLayer(oldOverlay);
-      }
+      this.map.removeLayer(oldOverlay);
     }
     
     const overlay = L.imageOverlay(imageUrl, bounds, {
@@ -1493,12 +1483,8 @@ class LeafletBomRadarCard extends HTMLElement {
     this.activeOverlays.set(overlayId, overlay);
     
     overlay.on('load', () => {
-      if (overlay._image) {
-        overlay._image.style.transition = `opacity ${this.config.fade_duration}ms`;
-        setTimeout(() => {
-          overlay.setOpacity(this.config.opacity);
-        }, 10);
-      }
+      // Image loaded successfully
+      console.log(`Radar overlay loaded: ${radarId}`);
     });
   }
 
