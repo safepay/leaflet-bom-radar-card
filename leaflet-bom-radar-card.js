@@ -741,6 +741,8 @@ class LeafletBomRadarCard extends HTMLElement {
         height: 450px;
         overflow: hidden;
       }
+
+      
       #radar-map {
         height: 100%;
         width: 100%;
@@ -756,6 +758,7 @@ class LeafletBomRadarCard extends HTMLElement {
       
       .leaflet-tile-container {
         pointer-events: none;
+          position: absolute;
       }
       
       .leaflet-tile {
@@ -764,15 +767,22 @@ class LeafletBomRadarCard extends HTMLElement {
         margin: 0 !important;
         padding: 0 !important;
         display: block !important;
-        /* CRITICAL: Fix tile rendering */
+        position: absolute;
+        
+        /* CRITICAL: Explicit tile size */
         width: 256px !important;
         height: 256px !important;
+        
+        /* Smooth rendering */
         image-rendering: auto;
         image-rendering: -webkit-optimize-contrast;
-        backface-visibility: hidden;
+        
+        /* GPU acceleration */
         transform: translateZ(0);
+        backface-visibility: hidden;
+        will-change: transform;
       }
-      
+
       .leaflet-tile-pane {
         /* Prevent tile gaps */
         transform: translateZ(0);
@@ -785,17 +795,21 @@ class LeafletBomRadarCard extends HTMLElement {
         transform: translateZ(0);
       }
       
-      /* Fix for tile loading artifacts */
-      .leaflet-tile-loaded {
-        visibility: visible !important;
-        opacity: 1 !important;
-      }      
+      .leaflet-tile-pane {
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        position: absolute;
+        left: 0;
+        top: 0;
+        z-index: 200;
+      }
       
       .leaflet-layer,
-      .leaflet-tile-pane {
-        /* Prevent gaps between tiles */
-        transform: translate3d(0, 0, 0);
-        backface-visibility: hidden;
+      .leaflet-overlay-pane {
+        transform: translateZ(0);
+        position: absolute;
+        left: 0;
+        top: 0;
       }
       
       /* Smooth radar overlays */
@@ -984,20 +998,30 @@ class LeafletBomRadarCard extends HTMLElement {
       .leaflet-fade-anim .leaflet-popup {
         transition: opacity ${this.config.fade_duration}ms;
       }
-      .leaflet-zoom-anim .leaflet-zoom-animated {
-        transition: transform 0.25s cubic-bezier(0,0,0.25,1);
+
+      /* Ensure loaded tiles are visible */
+      .leaflet-tile-loaded {
+        visibility: visible !important;
+        opacity: 1 !important;
       }
       
-      /* Fix Leaflet control positioning */
+      /* Fix zoom animations */
+      .leaflet-zoom-animated {
+        transform-origin: 0 0;
+      }
+      
+      /* Fix for Leaflet controls */
       .leaflet-top,
       .leaflet-bottom {
         z-index: 1000;
+        position: absolute;
       }
+      
       .leaflet-control-zoom {
         margin-right: 10px !important;
         margin-top: 10px !important;
       }
-      
+
       @media (max-width: 600px) {
         .card-header {
           flex-direction: column;
