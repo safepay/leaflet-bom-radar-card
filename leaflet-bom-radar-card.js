@@ -1512,18 +1512,8 @@ class LeafletBomRadarCard extends HTMLElement {
       const radarId = overlayId.replace('_overlay', '');
       
       if (!this.visibleRadars.has(radarId)) {
-        if (overlay._image) {
-          overlay._image.style.transition = `opacity ${this.config.fade_duration}ms`;
-          overlay._image.style.opacity = '0';
-          
-          setTimeout(() => {
-            this.map.removeLayer(overlay);
-            this.activeOverlays.delete(overlayId);
-          }, this.config.fade_duration);
-        } else {
-          this.map.removeLayer(overlay);
-          this.activeOverlays.delete(overlayId);
-        }
+        this.map.removeLayer(overlay);
+        this.activeOverlays.delete(overlayId);
       }
     }
   }
