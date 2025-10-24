@@ -1,5 +1,5 @@
 // leaflet-bom-radar-card.js
-// Version 2.2.1 - Auth Fix: Use WebSocket API for ingress detection
+// Version 2.2.2 - Overlay Display Fix
 // Dynamic Multi-Radar Support with Resolution
 
 // ============================================================================
@@ -1101,10 +1101,10 @@ class LeafletBomRadarCard extends HTMLElement {
     // Setup event listeners
     this.setupEventListeners();
     
-    // Map viewport change handler
-    // this.map.on('moveend zoomend', () => {
-    //   this.onViewportChange();
-    // });
+    // ===== FIX #1: ENABLE viewport change handler =====
+    this.map.on('moveend zoomend', () => {
+      this.onViewportChange();
+    });
     
     // Force map to recalculate size after a short delay
     setTimeout(() => {
@@ -1238,9 +1238,16 @@ class LeafletBomRadarCard extends HTMLElement {
     
       if (this.allTimestamps.length > 0) {
         this.currentFrameIndex = this.allTimestamps.length - 1;
+        
+        // ===== FIX #2: ENSURE display happens =====
+        console.log('BoM Radar Card: About to display frame', this.currentFrameIndex);
         await this.displayCurrentFrame();
+        console.log('BoM Radar Card: Display complete. Active overlays:', this.activeOverlays.size);
+        
         this.updateTimeline();
         this.updateTimelineLabels();
+      } else {
+        console.warn('BoM Radar Card: No timestamps available to display');
       }
       
       this.updateRadarInfo();
@@ -1412,9 +1419,13 @@ class LeafletBomRadarCard extends HTMLElement {
   }
 
   async displayCurrentFrame() {
-    if (this.allTimestamps.length === 0) return;
+    if (this.allTimestamps.length === 0) {
+      console.warn('BoM Radar Card: No timestamps to display');
+      return;
+    }
     
     const currentTimestamp = this.allTimestamps[this.currentFrameIndex];
+    console.log(`BoM Radar Card: Displaying frame ${this.currentFrameIndex} (timestamp: ${currentTimestamp})`);
     
     const displayPromises = [];
     
@@ -1423,11 +1434,15 @@ class LeafletBomRadarCard extends HTMLElement {
       const closestTimestamp = this.findClosestTimestamp(timestamps, currentTimestamp);
       
       if (closestTimestamp) {
+        console.log(`BoM Radar Card: Will display ${radarId} at ${closestTimestamp}`);
         displayPromises.push(this.displayRadarImage(radarId, closestTimestamp));
+      } else {
+        console.warn(`BoM Radar Card: No timestamp found for ${radarId}`);
       }
     }
     
     await Promise.allSettled(displayPromises);
+    console.log(`BoM Radar Card: Display promises completed. Active overlays: ${this.activeOverlays.size}`);
     
     this.updateTimestampDisplay(currentTimestamp);
   }
@@ -1458,26 +1473,34 @@ class LeafletBomRadarCard extends HTMLElement {
     const cacheKey = `${radarId}_${timestamp}_${resolution}`;
     const overlayId = `${radarId}_overlay`;
     
-    // Check if this exact image is already displayed
+    // ===== FIX #3: Remove overly restrictive check =====
+    // We'll still track what's displayed but won't skip initial display
     const currentKey = this.displayedImages.get(overlayId);
-    if (currentKey === cacheKey) {
+    if (currentKey === cacheKey && this.activeOverlays.has(overlayId)) {
       console.log(`Radar ${radarId} already showing ${timestamp}, skipping`);
-      return; // Same image already displayed
+      return; // Same image already displayed AND overlay exists
     }
     
     if (!this.imageCache.has(cacheKey)) {
       const imageUrl = `${this.ingressUrl}/api/radar/${radarId}/${timestamp}/${resolution}`;
       this.imageCache.set(cacheKey, imageUrl);
+      console.log(`BoM Radar Card: Cached image URL for ${cacheKey}: ${imageUrl}`);
     }
     
     const imageUrl = this.imageCache.get(cacheKey);
     const radar = this.radarLocations[radarId];
     
     const bounds = this.calculateRadarBounds(radar, resolution);
+    console.log(`BoM Radar Card: Creating overlay for ${radarId}:`, {
+      imageUrl,
+      bounds: bounds,
+      opacity: this.config.opacity
+    });
     
     // Remove old overlay if exists
     const existingOverlay = this.activeOverlays.get(overlayId);
     if (existingOverlay) {
+      console.log(`BoM Radar Card: Removing existing overlay for ${radarId}`);
       this.map.removeLayer(existingOverlay);
     }
     
@@ -1488,13 +1511,20 @@ class LeafletBomRadarCard extends HTMLElement {
       className: `radar-overlay radar-${radarId}`
     });
     
+    console.log(`BoM Radar Card: Adding overlay to map for ${radarId}`);
     overlay.addTo(this.map);
     this.activeOverlays.set(overlayId, overlay);
-    this.displayedImages.set(overlayId, cacheKey); // Track what's displayed
+    this.displayedImages.set(overlayId, cacheKey);
     
     overlay.on('load', () => {
-      console.log(`Radar overlay loaded: ${radarId} at ${timestamp}`);
+      console.log(`✅ Radar overlay loaded successfully: ${radarId} at ${timestamp}`);
     });
+    
+    overlay.on('error', (e) => {
+      console.error(`❌ Radar overlay failed to load: ${radarId} at ${timestamp}`, e);
+    });
+    
+    console.log(`BoM Radar Card: Overlay setup complete for ${radarId}. Total active: ${this.activeOverlays.size}`);
   }
   
   calculateRadarBounds(radar, resolution = null) {
@@ -1769,7 +1799,7 @@ window.customCards.push({
 });
 
 console.info(
-  '%c LEAFLET-BOM-RADAR-CARD %c Version 2.2.1 - Auth Fix ',
+  '%c LEAFLET-BOM-RADAR-CARD %c Version 2.2.2 - Overlay Display Fix ',
   'color: orange; font-weight: bold; background: black',
   'color: white; font-weight: bold; background: dimgray'
 );
