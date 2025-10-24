@@ -761,7 +761,6 @@ class LeafletBomRadarCard extends HTMLElement {
     return `
       ha-card {
         overflow: hidden;
-        height: 100%;
       }
       .card-header {
         padding: 16px;
@@ -783,13 +782,11 @@ class LeafletBomRadarCard extends HTMLElement {
         padding: 0;
         display: flex;
         flex-direction: column;
-        height: calc(100% - 70px);
       }
       #map-container {
         position: relative;
         width: 100%;
-        flex: 1;
-        min-height: 450px;
+        height: 450px;
         overflow: hidden;
       }
       #radar-map {
