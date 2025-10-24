@@ -747,25 +747,50 @@ class LeafletBomRadarCard extends HTMLElement {
         background: #a0d6f5;
         position: relative;
       }      
-      /* FIX TILE BORDERS */
+
+      /* FIX TILE BORDERS AND ALIGNMENT */
       .leaflet-container {
         background: #a0d6f5 !important;
         font-family: inherit;
       }
+      
       .leaflet-tile-container {
         pointer-events: none;
       }
+      
       .leaflet-tile {
         border: none !important;
         outline: none !important;
         margin: 0 !important;
         padding: 0 !important;
         display: block !important;
-        /* Fix for tile gaps */
+        /* CRITICAL: Fix tile rendering */
+        width: 256px !important;
+        height: 256px !important;
+        image-rendering: auto;
         image-rendering: -webkit-optimize-contrast;
-        image-rendering: crisp-edges;
-        image-rendering: pixelated;
+        backface-visibility: hidden;
+        transform: translateZ(0);
       }
+      
+      .leaflet-tile-pane {
+        /* Prevent tile gaps */
+        transform: translateZ(0);
+        backface-visibility: hidden;
+      }
+      
+      .leaflet-layer,
+      .leaflet-overlay-pane {
+        /* Smooth rendering */
+        transform: translateZ(0);
+      }
+      
+      /* Fix for tile loading artifacts */
+      .leaflet-tile-loaded {
+        visibility: visible !important;
+        opacity: 1 !important;
+      }      
+      
       .leaflet-layer,
       .leaflet-tile-pane {
         /* Prevent gaps between tiles */
