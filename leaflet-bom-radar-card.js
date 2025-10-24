@@ -1467,9 +1467,16 @@ class LeafletBomRadarCard extends HTMLElement {
     
     const bounds = this.calculateRadarBounds(radar, resolution);
     
-    if (this.activeOverlays.has(overlayId)) {
-      const oldOverlay = this.activeOverlays.get(overlayId);
-      this.map.removeLayer(oldOverlay);
+    // Check if we already have this exact image displayed
+    const existingOverlay = this.activeOverlays.get(overlayId);
+    if (existingOverlay && this.imageCache.get(cacheKey) === imageUrl) {
+      // Same image already displayed, don't recreate
+      return;
+    }
+    
+    // Remove old overlay if exists
+    if (existingOverlay) {
+      this.map.removeLayer(existingOverlay);
     }
     
     const overlay = L.imageOverlay(imageUrl, bounds, {
