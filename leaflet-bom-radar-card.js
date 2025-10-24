@@ -1337,11 +1337,25 @@ class LeafletBomRadarCard extends HTMLElement {
     const fetchPromises = [];
     
     for (const radarId of this.visibleRadars) {
+      // Check if we have cached data
+      const cached = this.radarTimestamps.get(radarId);
+      if (cached && cached.length > 0) {
+        console.log(`Using cached timestamps for ${radarId}`);
+        continue; // Skip if we have cached data
+      }
+      
+      // Only fetch if no cache
       const lastFetch = this.lastTimestampFetch.get(radarId) || 0;
       const timeSinceLastFetch = Date.now() - lastFetch;
       
-      if (timeSinceLastFetch >= this.MIN_FETCH_INTERVAL || !this.radarTimestamps.has(radarId)) {
-        fetchPromises.push(this.fetchTimestampsForRadar(radarId));
+      if (timeSinceLastFetch >= this.MIN_FETCH_INTERVAL) {
+        fetchPromises.push(
+          this.fetchTimestampsForRadar(radarId).catch(error => {
+            console.error(`Failed to fetch ${radarId}:`, error);
+            // Return empty to not break Promise.allSettled
+            return null;
+          })
+        );
       }
     }
     
@@ -1350,26 +1364,43 @@ class LeafletBomRadarCard extends HTMLElement {
       await Promise.allSettled(fetchPromises);
     }
   }
-
+  
   async fetchTimestampsForRadar(radarId) {
     try {
       const zoom = this.map.getZoom();
       const resolution = this.getResolutionForZoom(zoom);
       
       const limit = Math.ceil((this.config.cache_hours * 60) / 10);
-      const response = await this.apiRequest(`/api/timestamps/${radarId}/${resolution}?limit=${limit}`);
+      
+      // Add timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const response = await this.apiRequest(
+        `/api/timestamps/${radarId}/${resolution}?limit=${limit}`,
+        { signal: controller.signal }
+      );
+      
+      clearTimeout(timeoutId);
+      
       const data = await response.json();
       
       this.radarTimestamps.set(radarId, data.timestamps || []);
       this.lastTimestampFetch.set(radarId, Date.now());
       
-      console.log(`BoM Radar Card: Fetched ${data.timestamps.length} timestamps for ${radarId} at ${resolution}km`);
+      console.log(`Fetched ${data.timestamps.length} timestamps for ${radarId} at ${resolution}km`);
     } catch (error) {
-      console.error(`BoM Radar Card: Failed to fetch timestamps for ${radarId}:`, error);
+      if (error.name === 'AbortError') {
+        console.error(`Timeout fetching timestamps for ${radarId}`);
+      } else {
+        console.error(`Failed to fetch timestamps for ${radarId}:`, error);
+      }
+      // Set empty array so card doesn't get stuck
       this.radarTimestamps.set(radarId, []);
+      throw error;
     }
   }
-
+  
   async buildTimelineFromAllRadars() {
     const timestampSet = new Set();
     
