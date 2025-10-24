@@ -449,60 +449,62 @@ class LeafletBomRadarCard extends HTMLElement {
     }
   }
   
-  async getIngressUrl() {
-    // For Home Assistant add-ons, ONLY ingress path works from browser
-    const ingressPath = '/api/hassio_ingress/bom_radar_proxy';
-    
-    console.log('BoM Radar Card: Using ingress path:', ingressPath);
-    
-    try {
-      const testUrl = `${ingressPath}/health`;
-      console.log('BoM Radar Card: Testing:', testUrl);
-      
-      const response = await fetch(testUrl, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        this.ingressUrl = ingressPath;
-        console.log('BoM Radar Card: Connected successfully via ingress');
-        return;
-      }
-      
-      throw new Error(`Ingress health check failed: ${response.status} ${response.statusText}`);
-    } catch (error) {
-      console.error('BoM Radar Card: Ingress connection failed:', error);
-      throw new Error('Could not connect to BoM Radar Proxy add-on via ingress. Check add-on is running.');
-    }
-  }  
-//  async getIngressFromAPI() {
-//    if (!this._hass || !this._hass.callWS) {
-//      throw new Error('Home Assistant connection not available');
-//    }
-//    
-//    try {
-//      // Use WebSocket API instead of REST API to avoid auth issues
-//      const result = await this._hass.callWS({
-//        type: 'supervisor/api',
-//        endpoint: '/ingress/session',
-//        method: 'post',
-//        data: {
-//          addon: 'local_bom_radar_proxy'
-//        }
-//      });
-//      
-//      if (result && result.data && result.data.session) {
-//        return `/api/hassio_ingress/${result.data.session}`;
-//      }
-//    } catch (error) {
-//      console.warn('BoM Radar Card: WS API ingress detection failed:', error.message);
-//    }
-//    
-//    throw new Error('API ingress detection failed');
-//  }
 
+  async getIngressUrl() {
+    console.log('BoM Radar Card: Connecting to add-on via exposed port...');
+    
+    // Dashboard cards CANNOT use ingress (only works in add-on panel)
+    // Instead, use the exposed port from config.yaml: ports: 3000/tcp: 3000
+    
+    const possibleUrls = [
+      `http://${window.location.hostname}:3000`,  // Use HA hostname
+      'http://homeassistant.local:3000',          // Default HA hostname
+      'http://homeassistant:3000',                 // Docker internal
+    ];
+    
+    for (const url of possibleUrls) {
+      try {
+        console.log('BoM Radar Card: Trying:', url);
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        
+        const response = await fetch(`${url}/health`, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          this.ingressUrl = url;
+          console.log('BoM Radar Card: Connected successfully to:', url);
+          
+          // Log the health response for debugging
+          const data = await response.json();
+          console.log('BoM Radar Card: Server status:', data.status);
+          return;
+        }
+        
+        console.log('BoM Radar Card:', url, 'returned', response.status);
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          console.log('BoM Radar Card:', url, 'timed out');
+        } else {
+          console.log('BoM Radar Card:', url, 'failed:', error.message);
+        }
+      }
+    }
+    
+    // All attempts failed
+    throw new Error(
+      'Could not connect to BoM Radar Proxy add-on. ' +
+      'Ensure port 3000 is accessible. ' +
+      'Check Settings → Add-ons → BoM Radar Proxy is running.'
+    );
+  }
+  
   detectIngressFromPath() {
     const path = window.location.pathname;
     const match = path.match(/\/api\/hassio_ingress\/([^\/]+)/);
