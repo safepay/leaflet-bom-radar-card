@@ -1,5 +1,5 @@
 // leaflet-bom-radar-card.js
-// Version 2.2.2 - Overlay Display Fix
+// Version 2.2.3 - Overlay Visibility Fix
 // Dynamic Multi-Radar Support with Resolution
 
 // ============================================================================
@@ -817,6 +817,22 @@ class LeafletBomRadarCard extends HTMLElement {
       .radar-overlay {
         image-rendering: auto !important;
         mix-blend-mode: multiply;
+        pointer-events: none !important;
+      }
+      
+      /* CRITICAL: Ensure overlay pane has correct z-index */
+      .leaflet-overlay-pane {
+        z-index: 400 !important;
+      }
+      
+      /* Ensure radar image layers are visible */
+      .leaflet-image-layer {
+        display: block !important;
+        visibility: visible !important;
+      }
+      
+      .leaflet-image-layer.radar-overlay {
+        z-index: 400 !important;
       }
       
       .loading-overlay {
@@ -1110,6 +1126,14 @@ class LeafletBomRadarCard extends HTMLElement {
     setTimeout(() => {
       this.map.invalidateSize();
       console.log('BoM Radar Card: Map invalidated and resized');
+      
+      // DIAGNOSTIC: Check pane structure
+      const panes = this.map.getPanes();
+      console.log('BoM Radar Card: Leaflet panes:', Object.keys(panes));
+      if (panes.overlayPane) {
+        console.log('BoM Radar Card: overlayPane z-index:', 
+          window.getComputedStyle(panes.overlayPane).zIndex);
+      }
     }, 100);
     
     // Also invalidate on window resize
@@ -1473,12 +1497,11 @@ class LeafletBomRadarCard extends HTMLElement {
     const cacheKey = `${radarId}_${timestamp}_${resolution}`;
     const overlayId = `${radarId}_overlay`;
     
-    // ===== FIX #3: Remove overly restrictive check =====
-    // We'll still track what's displayed but won't skip initial display
+    // Check if already displayed
     const currentKey = this.displayedImages.get(overlayId);
     if (currentKey === cacheKey && this.activeOverlays.has(overlayId)) {
       console.log(`Radar ${radarId} already showing ${timestamp}, skipping`);
-      return; // Same image already displayed AND overlay exists
+      return;
     }
     
     if (!this.imageCache.has(cacheKey)) {
@@ -1502,27 +1525,68 @@ class LeafletBomRadarCard extends HTMLElement {
     if (existingOverlay) {
       console.log(`BoM Radar Card: Removing existing overlay for ${radarId}`);
       this.map.removeLayer(existingOverlay);
+      this.activeOverlays.delete(overlayId);
     }
     
+    // ===== CRITICAL FIX: Use proper Leaflet pane and z-index =====
     const overlay = L.imageOverlay(imageUrl, bounds, {
       opacity: this.config.opacity,
       interactive: false,
       crossOrigin: 'anonymous',
-      className: `radar-overlay radar-${radarId}`
+      className: `radar-overlay radar-${radarId}`,
+      pane: 'overlayPane',  // CRITICAL: Force overlay pane
+      zIndex: 400 + Array.from(this.visibleRadars).indexOf(radarId)  // Stack radars properly
     });
     
     console.log(`BoM Radar Card: Adding overlay to map for ${radarId}`);
+    
+    // Force the overlay to be added and ensure it's visible
     overlay.addTo(this.map);
+    
+    // CRITICAL: Force Leaflet to update the overlay immediately
+    if (overlay._image) {
+      console.log(`BoM Radar Card: Image element exists for ${radarId}`, overlay._image);
+      overlay._image.style.display = 'block';
+      overlay._image.style.visibility = 'visible';
+    } else {
+      console.warn(`BoM Radar Card: No image element created for ${radarId}`);
+    }
+    
     this.activeOverlays.set(overlayId, overlay);
     this.displayedImages.set(overlayId, cacheKey);
     
     overlay.on('load', () => {
       console.log(`✅ Radar overlay loaded successfully: ${radarId} at ${timestamp}`);
+      // Force visibility after load
+      if (overlay._image) {
+        overlay._image.style.display = 'block';
+        overlay._image.style.visibility = 'visible';
+        overlay._image.style.opacity = this.config.opacity;
+        console.log(`BoM Radar Card: Forced visibility on ${radarId} image element`);
+      }
     });
     
     overlay.on('error', (e) => {
       console.error(`❌ Radar overlay failed to load: ${radarId} at ${timestamp}`, e);
     });
+    
+    // Add a small delay to check if image actually appeared
+    setTimeout(() => {
+      const layers = document.querySelectorAll('.radar-overlay');
+      console.log(`BoM Radar Card: Overlay check for ${radarId} - Found ${layers.length} radar overlays in DOM`);
+      if (overlay._image) {
+        const rect = overlay._image.getBoundingClientRect();
+        console.log(`BoM Radar Card: ${radarId} image position:`, {
+          width: rect.width,
+          height: rect.height,
+          top: rect.top,
+          left: rect.left,
+          display: overlay._image.style.display,
+          visibility: overlay._image.style.visibility,
+          opacity: overlay._image.style.opacity
+        });
+      }
+    }, 100);
     
     console.log(`BoM Radar Card: Overlay setup complete for ${radarId}. Total active: ${this.activeOverlays.size}`);
   }
@@ -1799,7 +1863,7 @@ window.customCards.push({
 });
 
 console.info(
-  '%c LEAFLET-BOM-RADAR-CARD %c Version 2.2.2 - Overlay Display Fix ',
+  '%c LEAFLET-BOM-RADAR-CARD %c Version 2.2.3 - Overlay Visibility Fix ',
   'color: orange; font-weight: bold; background: black',
   'color: white; font-weight: bold; background: dimgray'
 );
