@@ -1095,19 +1095,28 @@ class LeafletBomRadarCard extends HTMLElement {
 
   addBaseLayer() {
     if (this.config.base_layer === 'google') {
+      // Google Maps satellite/hybrid layer
       L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
         attribution: '© Google Maps',
         maxZoom: 20,
         minZoom: 5,
         subdomains: ['0', '1', '2', '3'],
-        errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+        crossOrigin: true
       }).addTo(this.map);
     } else {
+      // OpenStreetMap standard layer
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         maxZoom: 19,
         minZoom: 5,
-        errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+        subdomains: ['a', 'b', 'c'],
+        crossOrigin: true,
+        // Better error handling
+        errorTileUrl: '',
+        // Add these for better loading
+        updateWhenIdle: false,
+        updateWhenZooming: false,
+        keepBuffer: 2
       }).addTo(this.map);
     }
   }
